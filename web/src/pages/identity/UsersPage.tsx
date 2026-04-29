@@ -143,8 +143,8 @@ export default function UsersPage() {
         }
       />
       <ResourceTable
-        columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={users as unknown as Record<string, unknown>[]}
+        columns={columns}
+        data={users}
         isLoading={isLoading}
         error={error}
         emptyMessage="No users."

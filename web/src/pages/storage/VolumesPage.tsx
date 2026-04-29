@@ -72,8 +72,8 @@ export default function VolumesPage() {
       header: 'Status',
       render: (r) => (
         <div className="flex items-center gap-1.5">
-          <StatusBadge status={(r as unknown as Volume).status} />
-          {(r as unknown as Volume).bootable && (
+          <StatusBadge status={r.status} />
+          {r.bootable && (
             <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-400">boot</span>
           )}
         </div>
@@ -145,7 +145,7 @@ export default function VolumesPage() {
       />
       <ResourceTable
         columns={columns}
-        data={volumes as unknown as Record<string, unknown>[]}
+        data={volumes}
         isLoading={isLoading}
         error={error}
         emptyMessage="No volumes. Create one to get started."

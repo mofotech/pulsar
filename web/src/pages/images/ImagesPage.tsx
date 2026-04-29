@@ -69,7 +69,7 @@ export default function ImagesPage() {
       <PageHeader title="Images" description="VM disk images" />
       <ResourceTable
         columns={columns}
-        data={images as unknown as Record<string, unknown>[]}
+        data={images}
         isLoading={isLoading}
         error={error}
         emptyMessage="No images."

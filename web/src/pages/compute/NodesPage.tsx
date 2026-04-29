@@ -45,7 +45,7 @@ export default function NodesPage() {
       />
       <ResourceTable
         columns={columns}
-        data={nodes as unknown as Record<string, unknown>[]}
+        data={nodes}
         isLoading={isLoading}
         error={error}
         emptyMessage="No nodes registered."

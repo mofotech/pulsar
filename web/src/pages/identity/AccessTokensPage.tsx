@@ -355,8 +355,8 @@ export default function AccessTokensPage() {
       />
 
       <ResourceTable
-        columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={tokens as unknown as Record<string, unknown>[]}
+        columns={columns}
+        data={tokens}
         isLoading={isLoading}
         error={error as Error | null}
         emptyMessage="No access tokens. Create one to authenticate CLI tools and IaC pipelines."

@@ -130,7 +130,7 @@ export default function FloatingIPsPage() {
       />
       <ResourceTable
         columns={columns}
-        data={fips as unknown as Record<string, unknown>[]}
+        data={fips}
         isLoading={isLoading}
         error={error}
         emptyMessage="No floating IPs allocated."

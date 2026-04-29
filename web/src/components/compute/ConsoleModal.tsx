@@ -7,9 +7,11 @@ import { getConsole, instanceAction } from '@/api/compute'
 // and has no top-level-await issues.
 const NOVNC_CDN = 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js'
 
-let novncLoadPromise: Promise<unknown> | null = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let novncLoadPromise: Promise<any> | null = null
 
-function loadNoVNC(): Promise<unknown> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function loadNoVNC(): Promise<any> {
   if (window.RFB) return Promise.resolve(window.RFB)
   if (novncLoadPromise) return novncLoadPromise
   novncLoadPromise = new Promise((resolve, reject) => {

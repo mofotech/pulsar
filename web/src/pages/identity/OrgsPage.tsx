@@ -162,8 +162,8 @@ export default function OrgsPage() {
       )}
 
       <ResourceTable
-        columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={orgs as unknown as Record<string, unknown>[]}
+        columns={columns}
+        data={orgs}
         isLoading={isLoading}
         error={error}
         emptyMessage="No organizations."

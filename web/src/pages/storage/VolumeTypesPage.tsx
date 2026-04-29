@@ -76,7 +76,7 @@ export default function VolumeTypesPage() {
       />
       <ResourceTable
         columns={columns}
-        data={types as unknown as Record<string, unknown>[]}
+        data={types}
         isLoading={isLoading}
         error={error}
         emptyMessage="No volume types. Create one to start provisioning volumes."

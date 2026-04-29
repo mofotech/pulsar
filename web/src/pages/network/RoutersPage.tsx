@@ -254,7 +254,7 @@ export default function RoutersPage() {
       />
       <ResourceTable
         columns={columns}
-        data={routers as unknown as Record<string, unknown>[]}
+        data={routers}
         isLoading={isLoading}
         error={error}
         emptyMessage="No routers."

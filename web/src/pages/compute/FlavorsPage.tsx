@@ -96,7 +96,7 @@ export default function FlavorsPage() {
 
       <ResourceTable
         columns={columns}
-        data={flavors as unknown as Record<string, unknown>[]}
+        data={flavors}
         isLoading={isLoading}
         error={error}
         emptyMessage="No flavors defined."

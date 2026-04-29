@@ -111,7 +111,7 @@ export default function SubnetsPage() {
       />
       <ResourceTable
         columns={columns}
-        data={subnets as unknown as Record<string, unknown>[]}
+        data={subnets}
         isLoading={isLoading}
         error={error}
         emptyMessage="No subnets."

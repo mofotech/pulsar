@@ -129,11 +129,11 @@ export default function InstancesPage() {
       />
 
       <ResourceTable
-        columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={instances as unknown as Record<string, unknown>[]}
+        columns={columns}
+        data={instances}
         isLoading={isLoading}
         error={error}
-        onRowClick={(row) => navigate(`/compute/instances/${(row as unknown as Instance).id}`)}
+        onRowClick={(row) => navigate(`/compute/instances/${row.id}`)}
         emptyMessage="No instances yet. Launch one to get started."
       />
 

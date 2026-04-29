@@ -129,7 +129,7 @@ export default function PortsPage() {
       <PageHeader title="Ports" description="Network ports" />
       <ResourceTable
         columns={columns}
-        data={ports as unknown as Record<string, unknown>[]}
+        data={ports}
         isLoading={isLoading}
         error={error}
         emptyMessage="No ports."

@@ -117,8 +117,8 @@ export default function ProjectsPage() {
         }
       />
       <ResourceTable
-        columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={projects as unknown as Record<string, unknown>[]}
+        columns={columns}
+        data={projects}
         isLoading={isLoading}
         error={error}
         emptyMessage="No projects."

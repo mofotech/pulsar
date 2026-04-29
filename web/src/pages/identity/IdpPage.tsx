@@ -174,8 +174,8 @@ export default function IdpPage() {
       )}
 
       <ResourceTable
-        columns={columns as unknown as Column<Record<string, unknown>>[]}
-        data={idps as unknown as Record<string, unknown>[]}
+        columns={columns}
+        data={idps}
         isLoading={isLoading}
         error={error}
         emptyMessage="No identity providers configured. Add an OIDC provider to enable SSO login for your organization."

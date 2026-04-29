@@ -78,7 +78,7 @@ export default function SnapshotsPage() {
       />
       <ResourceTable
         columns={columns}
-        data={snapshots as unknown as Record<string, unknown>[]}
+        data={snapshots}
         isLoading={isLoading}
         error={error}
         emptyMessage="No snapshots."
