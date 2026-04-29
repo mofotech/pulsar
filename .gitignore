@@ -5,6 +5,7 @@ bin/pulsarctl-linux
 
 # Web build artifacts
 web/dist/
+!web/dist/.gitkeep
 web/node_modules/
 
 # Editor / OS
