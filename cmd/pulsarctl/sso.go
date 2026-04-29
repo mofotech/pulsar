@@ -47,6 +47,7 @@ func newLoginSSOCmd() *cobra.Command {
 			errCh := make(chan error, 1)
 
 			srv := &http.Server{
+				ReadHeaderTimeout: 5 * time.Second,
 				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					token := r.URL.Query().Get("token")
 					expiresAt := r.URL.Query().Get("expires_at")

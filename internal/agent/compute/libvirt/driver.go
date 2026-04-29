@@ -339,20 +339,20 @@ func (d *Driver) ResizeInstance(ctx context.Context, id string, vcpus int, ramMB
 	if ramMB > 0 {
 		ramKB := ramMB * 1024
 		// Update the maximum memory in the persistent config.
-		if out, err := exec.CommandContext(ctx, "virsh", "setmaxmem", id,
+		if out, err := exec.CommandContext(ctx, "virsh", "setmaxmem", id, //nolint:gosec // id is a Pulsar-controlled UUID
 			fmt.Sprintf("%d", ramKB), "--config",
 		).CombinedOutput(); err != nil {
 			return fmt.Errorf("virsh setmaxmem: %w\n%s", err, out)
 		}
 		// Update the current memory in the persistent config.
-		if out, err := exec.CommandContext(ctx, "virsh", "setmem", id,
+		if out, err := exec.CommandContext(ctx, "virsh", "setmem", id, //nolint:gosec // id is a Pulsar-controlled UUID
 			fmt.Sprintf("%d", ramKB), "--config",
 		).CombinedOutput(); err != nil {
 			return fmt.Errorf("virsh setmem --config: %w\n%s", err, out)
 		}
 		if isRunning {
 			// Best-effort live balloon; guest must have virtio-balloon driver.
-			if out, err := exec.CommandContext(ctx, "virsh", "setmem", id,
+			if out, err := exec.CommandContext(ctx, "virsh", "setmem", id, //nolint:gosec // id is a Pulsar-controlled UUID
 				fmt.Sprintf("%d", ramKB), "--live",
 			).CombinedOutput(); err != nil {
 				// Non-fatal: the change will take effect on next boot.
