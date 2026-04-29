@@ -29,6 +29,6 @@ func Do(ctx context.Context, maxAttempts int, baseDelay time.Duration, fn func()
 
 func backoff(base time.Duration, attempt int) time.Duration {
 	exp := base * (1 << attempt)
-	jitter := time.Duration(rand.Int63n(int64(exp) / 2))
+	jitter := time.Duration(rand.Int63n(int64(exp) / 2)) //nolint:gosec // jitter doesn't need cryptographic randomness
 	return exp + jitter
 }

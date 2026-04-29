@@ -33,13 +33,13 @@ func WriteISO(cfg Config, destPath string) error {
 	}
 	defer os.RemoveAll(tmp)
 
-	if err := os.WriteFile(filepath.Join(tmp, "meta-data"), []byte(buildMetaData(cfg)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "meta-data"), []byte(buildMetaData(cfg)), 0o600); err != nil {
 		return fmt.Errorf("write meta-data: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "user-data"), []byte(buildUserData(cfg)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "user-data"), []byte(buildUserData(cfg)), 0o600); err != nil {
 		return fmt.Errorf("write user-data: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "network-config"), []byte(buildNetworkConfig(cfg)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "network-config"), []byte(buildNetworkConfig(cfg)), 0o600); err != nil {
 		return fmt.Errorf("write network-config: %w", err)
 	}
 

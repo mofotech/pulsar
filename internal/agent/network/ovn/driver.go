@@ -520,7 +520,9 @@ func (d *Driver) deleteRouterPolicies(ctx context.Context, routerID string, inte
 
 		// Only touch our managed priority band (1000–1999).
 		prioInt := 0
-		fmt.Sscanf(prio, "%d", &prioInt)
+		if _, err := fmt.Sscanf(prio, "%d", &prioInt); err != nil {
+			continue
+		}
 		if prioInt < 1000 || prioInt > 1999 {
 			continue
 		}

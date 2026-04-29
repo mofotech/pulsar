@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	golibvirt "github.com/digitalocean/go-libvirt"
+	"github.com/digitalocean/go-libvirt/socket/dialers"
 
 	compute "github.com/agomez/pulsar/internal/agent/compute"
 	"github.com/agomez/pulsar/internal/agent/compute/cloudinit"
@@ -34,11 +35,10 @@ func New(socketPath, instanceDir, domainType, emulator string) (*Driver, error) 
 	if emulator == "" {
 		emulator = "/usr/bin/kvm"
 	}
-	c, err := net.DialTimeout("unix", socketPath, 2e9)
-	if err != nil {
-		return nil, fmt.Errorf("connect to libvirt: %w", err)
-	}
-	lv := golibvirt.New(c)
+	lv := golibvirt.NewWithDialer(dialers.NewLocal(
+		dialers.WithSocket(socketPath),
+		dialers.WithLocalTimeout(2*time.Second),
+	))
 	if err := lv.Connect(); err != nil {
 		return nil, fmt.Errorf("libvirt connect: %w", err)
 	}
@@ -314,19 +314,20 @@ func (d *Driver) ResizeInstance(ctx context.Context, id string, vcpus int, ramMB
 	if vcpus > 0 {
 		// --maximum must be updated in the persistent config first so that
 		// the live count does not exceed the maximum.
+		//nolint:gosec // id is a Pulsar-controlled instance UUID, not user input
 		if out, err := exec.CommandContext(ctx, "virsh", "setvcpus", id,
 			fmt.Sprintf("%d", vcpus), "--config", "--maximum",
 		).CombinedOutput(); err != nil {
 			return fmt.Errorf("virsh setvcpus --maximum: %w\n%s", err, out)
 		}
-		if out, err := exec.CommandContext(ctx, "virsh", "setvcpus", id,
+		if out, err := exec.CommandContext(ctx, "virsh", "setvcpus", id, //nolint:gosec
 			fmt.Sprintf("%d", vcpus), "--config",
 		).CombinedOutput(); err != nil {
 			return fmt.Errorf("virsh setvcpus --config: %w\n%s", err, out)
 		}
 		if isRunning {
 			// Best-effort live hotplug; guest must support CPU hot-add.
-			if out, err := exec.CommandContext(ctx, "virsh", "setvcpus", id,
+			if out, err := exec.CommandContext(ctx, "virsh", "setvcpus", id, //nolint:gosec
 				fmt.Sprintf("%d", vcpus), "--live",
 			).CombinedOutput(); err != nil {
 				// Non-fatal: the change will take effect on next boot.

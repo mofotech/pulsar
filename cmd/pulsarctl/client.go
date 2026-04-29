@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,7 +32,7 @@ func do(method, url, token string, body interface{}) (json.RawMessage, error) {
 		r = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequest(method, url, r)
+	req, err := http.NewRequestWithContext(context.Background(), method, url, r)
 	if err != nil {
 		return nil, err
 	}

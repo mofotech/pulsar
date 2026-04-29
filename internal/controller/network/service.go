@@ -41,9 +41,8 @@ func pgName(sgID string) string {
 
 // pendingNetTask tracks an in-flight network task.
 type pendingNetTask struct {
-	taskType   string
-	resourceID string
-	done       chan taskResult
+	taskType string
+	done     chan taskResult
 }
 
 type taskResult struct {
@@ -756,21 +755,6 @@ func (s *Service) getNetworkByID(ctx context.Context, networkID string) (*Networ
 		}
 	}
 	return nil, fmt.Errorf("network %s not found", networkID)
-}
-
-// getRouterByID searches all projects for a router with the given ID.
-func (s *Service) getRouterByID(ctx context.Context, routerID string) (*Router, error) {
-	vals, err := s.store.GetPrefix(ctx, routerKeyPrefix)
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range vals {
-		var r Router
-		if err := json.Unmarshal([]byte(v), &r); err == nil && r.ID == routerID {
-			return &r, nil
-		}
-	}
-	return nil, fmt.Errorf("router %s not found", routerID)
 }
 
 func (s *Service) CreateRouter(ctx context.Context, projectID, name string) (*Router, error) {

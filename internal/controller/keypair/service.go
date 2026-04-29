@@ -2,7 +2,7 @@ package keypair
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // MD5 used for SSH key fingerprint display per RFC 4716, not for security
 	"encoding/base64"
 	"fmt"
 	"sort"

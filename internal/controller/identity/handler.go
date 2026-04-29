@@ -25,7 +25,7 @@ import (
 
 // revokedTokenKeyPrefix is the etcd namespace for revoked JWT IDs.
 // Keys are: /pulsar/auth/revoked/<jti>  →  expiry unix timestamp (as string).
-const revokedTokenKeyPrefix = "/pulsar/auth/revoked/"
+const revokedTokenKeyPrefix = "/pulsar/auth/revoked/" //nolint:gosec // etcd key prefix, not a credential
 
 type Handler struct {
 	cfg   *config.Config
@@ -78,7 +78,7 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
 
 	// Verify bcrypt hash. Legacy dev rows stored "dev-nohash" — accept any
 	// password for those so existing dev environments keep working.
-	if passwordHash != "dev-nohash" {
+	if passwordHash != "dev-nohash" { //nolint:gosec // dev sentinel value, not a real credential
 		if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
 			api.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials", middleware.GetReqID(ctx))
 			return

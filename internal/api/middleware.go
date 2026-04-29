@@ -25,7 +25,7 @@ const (
 	ctxKeyOrgRole   contextKey = "org_role"
 
 	// revokedTokenKeyPrefix mirrors the value in the identity handler.
-	revokedTokenKeyPrefix = "/pulsar/auth/revoked/"
+	revokedTokenKeyPrefix = "/pulsar/auth/revoked/" //nolint:gosec // etcd key prefix, not a credential
 )
 
 // AuthMiddleware validates a Bearer token (JWT or PAT) and injects user claims

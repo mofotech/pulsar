@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -116,7 +117,7 @@ func imageUploadCmd() *cobra.Command {
 				mw.Close() //nolint:errcheck
 			}()
 
-			req, err := http.NewRequest("POST", apiURL(ep, "/v1/images"), pr)
+			req, err := http.NewRequestWithContext(context.Background(), "POST", apiURL(ep, "/v1/images"), pr)
 			if err != nil {
 				return err
 			}

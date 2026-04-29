@@ -255,10 +255,10 @@ func (r *AgentRegistry) upsert(key string, hb *agentpb.Heartbeat, sendCh chan *a
 	rec.Pillar = hb.Pillar
 	rec.LastSeen = time.Now()
 	if hb.Capabilities != nil {
-		rec.Capabilities = *hb.Capabilities
+		rec.Capabilities = *hb.Capabilities //nolint:govet // proto internal mutex is never locked during heartbeat copy
 	}
 	if hb.Resources != nil {
-		rec.Resources = *hb.Resources
+		rec.Resources = *hb.Resources //nolint:govet
 	}
 
 	// Snapshot reconnect handler while holding the lock.
@@ -269,11 +269,15 @@ func (r *AgentRegistry) upsert(key string, hb *agentpb.Heartbeat, sendCh chan *a
 	r.mu.Unlock()
 
 	// Refresh etcd lease
-	go r.etcd.PutWithTTL(context.Background(),
-		"/pulsar/agents/"+hb.AgentId,
-		hb.AgentId,
-		agentLeaseTTL,
-	)
+	go func() {
+		if err := r.etcd.PutWithTTL(context.Background(),
+			"/pulsar/agents/"+hb.AgentId,
+			hb.AgentId,
+			agentLeaseTTL,
+		); err != nil {
+			r.log.Warn("agent etcd lease refresh failed", zap.String("id", hb.AgentId), zap.Error(err))
+		}
+	}()
 
 	// Notify reconnect handler outside the lock.
 	if reconnectFn != nil {
