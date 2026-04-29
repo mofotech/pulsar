@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package pulsar.compute.v1;
+
+option go_package = "github.com/agomez/pulsar/gen/proto/compute;computepb";
+
+// Task payloads for compute operations dispatched from controller to compute agent.
+
+message CreateInstanceTask {
+  string id              = 1;
+  string name            = 2;
+  string hypervisor_type = 3; // "kvm" | "lxd" | "lxc" | "containerd"
+  int32  vcpus           = 4;
+  int64  ram_mb          = 5;
+  int64  disk_gb         = 6;
+  string image_url       = 7;
+  string user_data       = 8; // cloud-init userdata (base64)
+  repeated NetworkPortSpec network_ports = 9;
+  map<string, string> metadata = 10;
+  string project_id      = 11;
+  string flavor_id       = 12;
+  string image_id        = 13;
+  repeated string ssh_public_keys = 14; // OpenSSH authorized_keys lines
+}
+
+message NetworkPortSpec {
+  string port_id    = 1;
+  string mac_addr   = 2;
+  string bridge     = 3; // Linux bridge name on the compute node
+}
+
+message DeleteInstanceTask {
+  string id   = 1;
+  bool   force = 2;
+}
+
+message StartInstanceTask {
+  string id = 1;
+}
+
+message StopInstanceTask {
+  string id   = 1;
+  bool   force = 2; // hard poweroff vs ACPI
+}
+
+message RebootInstanceTask {
+  string id   = 1;
+  bool   hard  = 2;
+}
+
+message MigrateInstanceTask {
+  string id          = 1;
+  string target_host = 2; // gRPC addr of target compute agent
+  bool   live        = 3;
+}
+
+message GetConsoleTask {
+  string id           = 1;
+  string console_type = 2; // "vnc" | "spice" | "serial"
+}
+
+// Result payloads
+
+message CreateInstanceResult {
+  string vnc_url = 1;
+}
+
+message GetConsoleResult {
+  string url = 1;
+}

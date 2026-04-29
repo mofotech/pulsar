@@ -1,0 +1,15 @@
+apiVersion: v2
+name: pulsar
+description: Pulsar IaaS compute orchestration platform — compute, network, and storage pillars.
+type: application
+version: 0.1.0
+appVersion: "dev"
+keywords:
+  - iaas
+  - virtualization
+  - kvm
+  - compute
+  - networking
+  - storage
+maintainers:
+  - name: Pulsar Team

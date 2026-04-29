@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulsar IaaS — Project Roadmap</title>
+<style>
+  /* ── Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 11pt;
+    line-height: 1.55;
+    color: #1a1a2e;
+    background: #fff;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 48px;
+  }
+
+  /* ── Typography ── */
+  h1 { font-size: 28pt; font-weight: 800; letter-spacing: -0.5px; color: #0f172a; }
+  h2 { font-size: 14pt; font-weight: 700; color: #1e293b; margin-bottom: 14px; }
+  h3 { font-size: 11pt; font-weight: 700; color: #334155; margin-bottom: 8px; }
+  p  { margin-bottom: 10px; }
+
+  /* ── Header block ── */
+  .doc-header {
+    border-bottom: 3px solid #3b82f6;
+    padding-bottom: 22px;
+    margin-bottom: 34px;
+  }
+  .doc-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 10px;
+    font-size: 9.5pt;
+    color: #64748b;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    vertical-align: middle;
+  }
+  .badge-done     { background: #dcfce7; color: #166534; }
+  .badge-partial  { background: #fef9c3; color: #854d0e; }
+  .badge-upcoming { background: #e0e7ff; color: #3730a3; }
+  .badge-future   { background: #f1f5f9; color: #475569; }
+  .badge-wip      { background: #fce7f3; color: #9d174d; }
+
+  /* ── Summary cards ── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 36px;
+  }
+  .summary-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px 14px;
+    text-align: center;
+  }
+  .summary-card .big-num { font-size: 26pt; font-weight: 800; }
+  .summary-card .label   { font-size: 8.5pt; color: #64748b; margin-top: 2px; }
+  .c-green  { color: #16a34a; }
+  .c-yellow { color: #d97706; }
+  .c-blue   { color: #2563eb; }
+  .c-slate  { color: #64748b; }
+
+  /* ── Section ── */
+  .section { margin-bottom: 36px; }
+  .section-title {
+    font-size: 10pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #94a3b8;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 6px;
+    margin-bottom: 18px;
+  }
+
+  /* ── Pillar layout ── */
+  .pillars { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 36px; }
+  .pillar {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .pillar-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .pillar-icon {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .icon-compute  { background: #dbeafe; }
+  .icon-network  { background: #dcfce7; }
+  .icon-storage  { background: #fef3c7; }
+  .icon-identity { background: #f3e8ff; }
+
+  /* ── Feature list ── */
+  .feature-list { list-style: none; }
+  .feature-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 9.5pt;
+    padding: 4px 0;
+    border-bottom: 1px solid #f8fafc;
+  }
+  .feature-list li:last-child { border-bottom: none; }
+  .feat-icon { flex-shrink: 0; width: 16px; text-align: center; margin-top: 1px; }
+  .feat-done    .feat-icon::after { content: '✓'; color: #16a34a; font-weight: 700; }
+  .feat-partial .feat-icon::after { content: '◑'; color: #d97706; }
+  .feat-no      .feat-icon::after { content: '○'; color: #cbd5e1; }
+  .feat-stub    .feat-icon::after { content: '⬡'; color: #94a3b8; }
+
+  /* ── Phase timeline ── */
+  .timeline { position: relative; }
+  .phase {
+    display: grid;
+    grid-template-columns: 120px 18px 1fr;
+    gap: 0 16px;
+    margin-bottom: 0;
+  }
+  .phase-label {
+    text-align: right;
+    font-size: 9pt;
+    font-weight: 600;
+    color: #475569;
+    padding-top: 14px;
+  }
+  .phase-spine {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .phase-dot {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 2px solid;
+    flex-shrink: 0;
+    margin-top: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 7pt; font-weight: 700;
+  }
+  .dot-done     { background: #16a34a; border-color: #16a34a; color: #fff; }
+  .dot-wip      { background: #f59e0b; border-color: #f59e0b; color: #fff; }
+  .dot-upcoming { background: #fff; border-color: #3b82f6; color: #3b82f6; }
+  .dot-future   { background: #fff; border-color: #cbd5e1; color: #94a3b8; }
+  .phase-line   { flex: 1; width: 2px; background: #e2e8f0; min-height: 16px; }
+  .phase-body   { padding: 10px 0 20px; }
+  .phase-name   { font-weight: 700; font-size: 10.5pt; margin-bottom: 6px; }
+  .phase-items  { font-size: 9pt; color: #475569; }
+  .phase-items li { margin-bottom: 2px; }
+
+  /* ── Architecture diagram (text-based) ── */
+  .arch-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 20px 24px;
+    font-family: 'SF Mono', 'Fira Mono', monospace;
+    font-size: 8.5pt;
+    color: #334155;
+    line-height: 1.7;
+    margin-bottom: 24px;
+  }
+
+  /* ── Gap table ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.5pt;
+    margin-bottom: 24px;
+  }
+  th {
+    background: #f1f5f9;
+    font-weight: 700;
+    text-align: left;
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+  }
+  td {
+    padding: 7px 12px;
+    border: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #fafafa; }
+
+  /* ── Footer ── */
+  .doc-footer {
+    margin-top: 40px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 14px;
+    font-size: 8.5pt;
+    color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ── Print ── */
+  @media print {
+    body { padding: 0; max-width: 100%; }
+    .pillar, .summary-card { break-inside: avoid; }
+    .phase { break-inside: avoid; }
+    h2 { break-after: avoid; }
+    @page { margin: 18mm 20mm; size: A4; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  HEADER                                                               -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="doc-header">
+  <h1>Pulsar IaaS</h1>
+  <p style="font-size:13pt;color:#475569;margin-top:6px;">Engineering Roadmap &amp; Status Report</p>
+  <div class="doc-meta">
+    <span>Date: April 2026</span>
+    <span>Version: 0.11 (Phase 11 — SSO/OIDC, organizations, per-org IDPs, personal access tokens)</span>
+    <span>Author: Engineering</span>
+    <span>
+      <span class="badge badge-done">Done</span>
+      <span class="badge badge-wip" style="margin-left:4px">In Progress</span>
+      <span class="badge badge-upcoming" style="margin-left:4px">Upcoming</span>
+      <span class="badge badge-future" style="margin-left:4px">Future</span>
+    </span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  EXECUTIVE SUMMARY                                                    -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="big-num c-green">11</div>
+    <div class="label">Phases Complete</div>
+  </div>
+  <div class="summary-card">
+    <div class="big-num c-yellow">1</div>
+    <div class="label">Phases Upcoming</div>
+  </div>
+  <div class="summary-card">
+    <div class="big-num c-blue">4</div>
+    <div class="label">Pillars Active<br><span style="font-size:8pt">(Compute + Network + Storage + Identity)</span></div>
+  </div>
+  <div class="summary-card">
+    <div class="big-num c-slate">0</div>
+    <div class="label">Pillars Pending</div>
+  </div>
+</div>
+
+<p style="color:#475569;font-size:9.5pt;margin-bottom:32px;">
+  Pulsar is a lightweight IaaS orchestration platform built as a single Go binary. It runs as either a
+  <strong>controller</strong> (control plane: REST API + gRPC) or an <strong>agent</strong> (data plane: compute, network,
+  or storage pillar). State is split between <strong>etcd</strong> (live cluster state) and
+  <strong>PostgreSQL</strong> (identity, quotas, audit). Networking is powered by <strong>OVN/OVS</strong> with
+  VXLAN/VLAN overlays; compute is driven by <strong>libvirt/KVM</strong>.
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  ARCHITECTURE SNAPSHOT                                                -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">System Architecture</div>
+  <div class="arch-box">
+┌──────────────────────── Control Plane (:8080 REST · :9090 gRPC · :9091 metrics) ─────────────────────────┐
+│                                                                                                            │
+│   pulsarctl CLI ──JWT/PAT──▶  chi Router  ──▶  Service Layer  ──▶  etcd   (instance/network/volume state)│
+│   Browser  ──── OIDC/SSO ──▶                          │           PostgreSQL (users, projects, quotas,    │
+│                                                        │                      orgs, IDPs, PATs, audit)     │
+│                                            Scheduler + Agent Registry                                     │
+│                                                     │                                                     │
+└─────────────────────────────────────────────────────┼───────────────────────────────────────────────────-─┘
+                                    gRPC bidirectional stream (mTLS)
+          ┌──────────────────────────────┬────────────┴───────────────┐
+          ▼                              ▼                             ▼
+  ┌──────────────────┐        ┌──────────────────┐          ┌──────────────────┐
+  │  Compute Agent   │        │  Network Agent   │          │  Storage Agent   │
+  │  --pillar=compute│        │  --pillar=network│          │  --pillar=storage│
+  │                  │        │                  │          │                  │
+  │  libvirt / KVM ✓ │        │  OVN / OVS    ✓ │          │  LVM ✓           │
+  │  LXD (stub)      │        │  ovn-nbctl CLI   │          │  Ceph (stub)     │
+  │  cloud-init ✓    │        │  VXLAN/VLAN ✓   │          │  NFS (stub)      │
+  │  domain_type/    │        │  Security Grps ✓ │          │                  │
+  │  emulator cfg ✓  │        │                  │          │                  │
+  └──────────────────┘        └──────────────────┘          └──────────────────┘
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PILLAR STATUS                                                        -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">Pillar Status</div>
+  <div class="pillars">
+
+    <!-- Identity -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <div class="pillar-icon icon-identity">🔐</div>
+        <div>
+          <h2 style="margin-bottom:2px">Identity</h2>
+          <span class="badge badge-done">Mostly Complete</span>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li class="feat-done"><span class="feat-icon"></span>JWT-based auth (login → token; includes <code>jti</code>, <code>org_id</code>, <code>org_role</code> claims)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Password hashing (bcrypt; legacy <code>dev-nohash</code> rows still accepted)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Token revocation — JTI deny-list in etcd with TTL; checked on every authenticated request</li>
+        <li class="feat-done"><span class="feat-icon"></span>Multi-tenancy via projects</li>
+        <li class="feat-done"><span class="feat-icon"></span>Role-based access (admin / member) — enforced on all identity mutation endpoints</li>
+        <li class="feat-done"><span class="feat-icon"></span>User CRUD (create, list, update role/password)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Project CRUD (create, list, rename, delete — admin only)</li>
+        <li class="feat-done"><span class="feat-icon"></span>SSH keypairs (generate RSA-4096 or import; injected via cloud-init)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Organizations (multi-tenant; platform_admin-managed; default <code>pulsar</code> org)</li>
+        <li class="feat-done"><span class="feat-icon"></span>OpenID Connect / SSO — per-org IDP config; OIDC authorize + callback; auto-provisioning; <code>federated_identities</code> link table</li>
+        <li class="feat-done"><span class="feat-icon"></span>IDP discovery endpoint — <code>GET /v1/auth/idps?email=…</code> for email-to-IDP resolution (domain_hint)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Personal access tokens (PATs) — <code>pat_</code>-prefix opaque tokens; bcrypt-hashed; expiry; <code>last_used_at</code> tracking</li>
+        <li class="feat-done"><span class="feat-icon"></span>PAT auth in middleware — dual JWT/PAT path in <code>AuthMiddleware</code>; compatible with all API routes</li>
+        <li class="feat-done"><span class="feat-icon"></span><code>pulsarctl login sso</code> — browser OIDC flow with ephemeral loopback callback server</li>
+        <li class="feat-done"><span class="feat-icon"></span><code>pulsarctl login token</code> — store PAT as active credentials</li>
+        <li class="feat-done"><span class="feat-icon"></span>Project scope middleware — validates project membership + org boundary per request</li>
+        <li class="feat-partial"><span class="feat-icon"></span>Fine-grained RBAC — admin/member enforced; no per-resource ownership checks yet</li>
+      </ul>
+    </div>
+
+    <!-- Compute -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <div class="pillar-icon icon-compute">⚙️</div>
+        <div>
+          <h2 style="margin-bottom:2px">Compute</h2>
+          <span class="badge badge-done">Mostly Complete</span>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li class="feat-done"><span class="feat-icon"></span>Instance lifecycle (create/start/stop/delete)</li>
+        <li class="feat-done"><span class="feat-icon"></span>KVM driver (libvirt)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Flavors (vCPU/RAM/disk)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Cloud-init / user data (NoCloud ISO)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Scheduler (least-loaded agent)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Automatic OVN port provisioning</li>
+        <li class="feat-done"><span class="feat-icon"></span>SSH keypairs (inject at launch via cloud-init authorized_keys)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Security group selection at instance launch</li>
+        <li class="feat-done"><span class="feat-icon"></span>Instance error recovery (hard-reboot / rebuild from error state)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Instance resize (vCPU/RAM hot-add via ACPI balloon; config-only fallback for stopped domains)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Live migration (<code>DomainMigratePerform3Params</code>; live + offline modes; non-shared-disk copy)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Boot from volume (<code>block_device_mappings</code>; iSCSI export to compute node; <code>delete_on_terminate</code>)</li>
+        <li class="feat-stub"><span class="feat-icon"></span>LXD driver (stub — interface stubs only, REST client not integrated)</li>
+        <li class="feat-no"><span class="feat-icon"></span>LXC / containerd drivers (directory placeholders only)</li>
+        <li class="feat-no"><span class="feat-icon"></span>HA flavors (shared storage evac)</li>
+      </ul>
+    </div>
+
+    <!-- Networking -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <div class="pillar-icon icon-network">🌐</div>
+        <div>
+          <h2 style="margin-bottom:2px">Networking</h2>
+          <span class="badge badge-done">Complete</span>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li class="feat-done"><span class="feat-icon"></span>Networks &amp; Subnets (CRUD, inline subnet management)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Subnet allocation pools (optional start/end IP range per subnet)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Ports (CRUD, OVN binding)</li>
+        <li class="feat-done"><span class="feat-icon"></span>OVN DHCP (native, per-subnet)</li>
+        <li class="feat-done"><span class="feat-icon"></span>VXLAN overlays (tenant isolation)</li>
+        <li class="feat-done"><span class="feat-icon"></span>External / provider flat networks (physnet1)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Routers + NAT gateway (SNAT) — <strong>OVN routing validated</strong></li>
+        <li class="feat-done"><span class="feat-icon"></span>Floating IPs (DNAT/SNAT, auto-alloc)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Security groups (full CRUD, OVN ACLs, remote-SG rules)</li>
+        <li class="feat-done"><span class="feat-icon"></span>FWaaS — per-router firewall policies: full CRUD, one policy per router, OVN <code>lr-policy</code> sync, UI Firewall Policies page</li>
+        <li class="feat-no"><span class="feat-icon"></span>Subnet pools (allocate subnets from pre-defined CIDR range)</li>
+        <li class="feat-no"><span class="feat-icon"></span>GENEVE tunneling</li>
+        <li class="feat-no"><span class="feat-icon"></span>Dedicated DNS service</li>
+      </ul>
+    </div>
+
+    <!-- Storage -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <div class="pillar-icon icon-storage">💾</div>
+        <div>
+          <h2 style="margin-bottom:2px">Storage</h2>
+          <span class="badge badge-done">Mostly Complete</span>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li class="feat-done"><span class="feat-icon"></span>Volume CRUD (create, attach, detach, extend, delete) — <strong>validated</strong></li>
+        <li class="feat-done"><span class="feat-icon"></span>LVM thin-pool driver with iSCSI export (tgtd) + initiator attach (iscsiadm via nsenter) — <strong>validated</strong></li>
+        <li class="feat-done"><span class="feat-icon"></span>virtio-scsi hotplug on q35 domains — <strong>validated</strong></li>
+        <li class="feat-done"><span class="feat-icon"></span>Volume lifecycle cleanup on instance delete</li>
+        <li class="feat-done"><span class="feat-icon"></span>Snapshots CRUD</li>
+        <li class="feat-done"><span class="feat-icon"></span>Volume types (selects backend driver)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Volume agent affinity — <code>agent_id</code> field tracks which storage node holds the LV; all ops route to correct agent ✓</li>
+        <li class="feat-done"><span class="feat-icon"></span>Ghost volume reconciliation — reconciler detects etcd records with no backing LV; re-dispatches <code>volume.create</code> or marks error ✓</li>
+        <li class="feat-done"><span class="feat-icon"></span>Boot from volume — iSCSI-exported volume as primary disk; <code>delete_on_terminate</code> support ✓</li>
+        <li class="feat-no"><span class="feat-icon"></span>Ceph/RBD driver</li>
+        <li class="feat-no"><span class="feat-icon"></span>NFS / GlusterFS driver</li>
+        <li class="feat-no"><span class="feat-icon"></span>Multi-attach volumes</li>
+        <li class="feat-no"><span class="feat-icon"></span>Volume resize &amp; QoS</li>
+        <li class="feat-no"><span class="feat-icon"></span>Cross-backend migration</li>
+        <li class="feat-no"><span class="feat-icon"></span>Multipathing</li>
+      </ul>
+    </div>
+
+  </div><!-- /pillars -->
+
+  <p style="font-size:8.5pt;color:#64748b;">
+    Legend: &nbsp;
+    <strong style="color:#16a34a">✓</strong> Implemented &amp; validated &nbsp;·&nbsp;
+    <strong style="color:#d97706">◑</strong> Partial / in progress &nbsp;·&nbsp;
+    <strong style="color:#94a3b8">⬡</strong> Stub (code exists, not functional) &nbsp;·&nbsp;
+    <strong style="color:#cbd5e1">○</strong> Not started
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PHASE TIMELINE                                                       -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">Development Phases</div>
+  <div class="timeline">
+
+    <!-- Phase 1 -->
+    <div class="phase">
+      <div class="phase-label">Phase 1<br><span style="font-weight:400;color:#94a3b8">Q4 2025</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Foundation &amp; Identity <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li>Single Go binary with <code>controller</code> / <code>agent</code> subcommands</li>
+          <li>etcd + PostgreSQL state backends; migration system</li>
+          <li>JWT authentication, multi-tenancy projects</li>
+          <li>REST API skeleton (chi router, JSON envelope)</li>
+          <li>gRPC bidirectional stream (TaskAssignment / TaskResult)</li>
+          <li>Agent registry with heartbeat &amp; lease tracking</li>
+          <li>Docker-compose deployment (<code>make up</code>)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="phase">
+      <div class="phase-label">Phase 2<br><span style="font-weight:400;color:#94a3b8">Q1 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Compute Pillar — KVM <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li>libvirt/KVM driver: create, start, stop, delete instances</li>
+          <li>Flavor system (vCPU / RAM / disk / hypervisor type)</li>
+          <li>Cloud-init NoCloud ISO injection (user data bootstrapping)</li>
+          <li>Least-loaded scheduler across registered compute agents</li>
+          <li>Finite-state machine for instance lifecycle</li>
+          <li>pulsarctl CLI: <code>instance create / list / get / delete</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="phase">
+      <div class="phase-label">Phase 3<br><span style="font-weight:400;color:#94a3b8">Feb 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Networking — SDN Core &amp; Routing <span class="badge badge-done">Complete &amp; Validated</span></div>
+        <ul class="phase-items">
+          <li>OVN/OVS integration — ovn-nbctl CLI wrapper</li>
+          <li>Tenant networks: VXLAN overlays, VLAN provider networks</li>
+          <li>OVN native DHCP per subnet (dnsmasq-free)</li>
+          <li>Router CRUD; logical router ports with OVN binding</li>
+          <li>SNAT gateway: instances reach internet via router NAT</li>
+          <li>External (provider) networks for gateway uplink</li>
+          <li><strong>Validated end-to-end:</strong> vm-ping-1 (192.168.100.4) → 8.8.8.8 ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 4 -->
+    <div class="phase">
+      <div class="phase-label">Phase 4<br><span style="font-weight:400;color:#94a3b8">Mar–Apr 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Networking — Floating IPs &amp; Web UI <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li>Floating IP CRUD: allocate, associate, disassociate, release</li>
+          <li>Auto-allocates from external subnet (user picks no network)</li>
+          <li>OVN DNAT+SNAT rule injection via <code>lr-nat-add dnat_and_snat</code></li>
+          <li>External IP claimed via Port record (device_id = "floatingip:&lt;id&gt;")</li>
+          <li>Router discovery: scans routers for ExternalNetworkID (reliable even if External flag unset)</li>
+          <li>Web UI: React + Tailwind dashboard with full Floating IP management</li>
+          <li>Associate dialog: inline port picker (instance name + IP + network label)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 5 -->
+    <div class="phase">
+      <div class="phase-label">Phase 5<br><span style="font-weight:400;color:#94a3b8">Q2 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Networking — Security Groups &amp; Storage Pillar <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li>Security group full CRUD with OVN port-group ACLs (ingress/egress, stateful conntrack)</li>
+          <li>Default security group per project — atomic creation via etcd CAS (<code>PutIfAbsent</code>)</li>
+          <li>Security group rule CRUD with validation (protocol, port range, CIDR, ethertype)</li>
+          <li>Remote SG references in rules — OVN address sets (<code>ip4.src == $pg_name</code>)</li>
+          <li>Port index: O(1) port lookup via reverse index in etcd (fixes 422 on SG-attach)</li>
+          <li>Web UI: security group CRUD, rule builder with remote-SG support</li>
+          <li>Web UI: attach/remove SGs per port on instance detail and ports pages</li>
+          <li>Storage pillar: Volume CRUD, LVM thin-pool driver, iSCSI attach/detach, snapshots, volume types</li>
+          <li>Compute: configurable <code>domain_type</code> and <code>emulator</code> per agent (fixes hardcoded <code>/usr/bin/kvm</code>)</li>
+          <li><strong>FWaaS (router gateway firewall)</strong> — not yet implemented; deferred to Phase 6</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 6 -->
+    <div class="phase">
+      <div class="phase-label">Phase 6<br><span style="font-weight:400;color:#94a3b8">Q3 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Storage Pillar — Advanced <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li><strong>Validated end-to-end:</strong> create → attach → detach → delete on live test host ✓</li>
+          <li>LVM thin-pool activation inside containers (<code>vgchange -ay</code> on agent init) ✓</li>
+          <li>tgtd iSCSI target export via host socket bind-mount (<code>/run/tgtd</code>) ✓</li>
+          <li>iscsiadm via <code>nsenter --net</code> into host network namespace (abstract socket) ✓</li>
+          <li>Stale iSCSI session cycling on re-attach (logout → udevadm settle → re-login) ✓</li>
+          <li>Block device discovery via <code>/dev/disk/by-path</code> (IQN colons preserved) ✓</li>
+          <li>virsh hotplug via virtio-scsi controller on q35 machine type ✓</li>
+          <li>Volume lifecycle cleanup: volumes released when instance deleted ✓</li>
+          <li>Orphaned volume recovery: detach/delete when attached instance is gone ✓</li>
+          <li>Error-state volumes deletable (LV not found treated as success) ✓</li>
+          <li>Stable list ordering across all resource types (sort by <code>created_at</code>) ✓</li>
+          <li>Empty list responses return <code>[]</code> not <code>null</code> (fixed UI crash on Volumes page) ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 7 -->
+    <div class="phase">
+      <div class="phase-label">Phase 7<br><span style="font-weight:400;color:#94a3b8">Mar–Apr 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Identity — SSH Keypairs &amp; Compute Hardening <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li>SSH keypair CRUD: generate RSA-4096 server-side or import existing public key ✓</li>
+          <li>Key injection via cloud-init <code>authorized_keys</code> on instance boot ✓</li>
+          <li>Keypairs scoped per-user (not project-wide); enforced at API middleware ✓</li>
+          <li>Web UI: Key Pairs page (generate / import / copy fingerprint / download PEM) ✓</li>
+          <li>Security group selection at instance launch (UI + backend) ✓</li>
+          <li>Floating IP shown on instance list (auto-resolved from ports) ✓</li>
+          <li>Instance error recovery: hard-reboot / rebuild from error state ✓</li>
+          <li>Project switcher in top bar; project-scoped API middleware ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 8 -->
+    <div class="phase">
+      <div class="phase-label">Phase 8<br><span style="font-weight:400;color:#94a3b8">Apr 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Networking — OVN Routing Fix &amp; Subnet Allocation Pools <span class="badge badge-done">Complete &amp; Validated</span></div>
+        <ul class="phase-items">
+          <li><strong>OVN routing bug fix:</strong> <code>lr-route-add</code> was missing output port arg; replaced stale route with explicit <code>lrp-ext-&lt;routerID&gt;</code> ✓</li>
+          <li>External networks: auto-upgrade to <code>flat</code> type; <code>localnet</code> port provisioned on update ✓</li>
+          <li>Subnet allocation pools: optional <code>[start, end]</code> IP range constrains port/router/floating-IP allocation ✓</li>
+          <li>Networks page redesigned: expandable rows with inline subnet management; add/delete subnets per-network ✓</li>
+          <li>Separate Subnets page removed; navigation consolidated ✓</li>
+          <li><strong>End-to-end validated:</strong> vm-ping-1 → 8.8.8.8, 0% packet loss ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 9 -->
+    <div class="phase">
+      <div class="phase-label">Phase 9<br><span style="font-weight:400;color:#94a3b8">Apr 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Advanced Compute, FWaaS &amp; Multi-node Storage <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li><strong>FWaaS:</strong> per-router <code>FirewallPolicy</code> + <code>FirewallRule</code> CRUD; one policy per router (enforced); OVN <code>lr-policy</code> sync via <code>network.router.firewall.sync</code> agent task; delete triggers full ACL clear ✓</li>
+          <li><strong>Boot from volume:</strong> <code>block_device_mappings</code> on <code>CreateInstanceRequest</code>; iSCSI-exports volume to compute node at scheduling time; <code>delete_on_terminate</code> honoured on instance delete ✓</li>
+          <li><strong>Instance resize:</strong> <code>POST /instances/{id}/resize</code>; libvirt hot-add vCPU (virsh setvcpus) + RAM (balloon); config-only fallback for stopped domains; UI resize dialog on instance detail page ✓</li>
+          <li><strong>Live migration:</strong> <code>POST /instances/{id}/migrate</code>; libvirt <code>DomainMigratePerform3Params</code> with non-shared-disk copy; live and offline modes; URI <code>qemu+tcp://{host}/system</code> ✓</li>
+          <li><strong>Volume agent affinity:</strong> <code>agent_id</code> field on Volume; set at <code>volume.create</code> time; <code>pickStorageAgentForVolume()</code> routes all subsequent ops (export, detach, extend, delete) to correct storage node ✓</li>
+          <li><strong>Ghost volume reconciliation:</strong> reconciler direction 2 — etcd <code>available</code>/<code>creating</code> record with no backing LV on any storage agent; re-dispatches <code>volume.create</code> to correct agent or marks <code>error</code> ✓</li>
+          <li><strong>Multi-node compute:</strong> second node (<code>ag-pulsar-comp-1</code>) fully operational; OVN NB/SB bound to <code>0.0.0.0</code>; Ansible role for full compute node provisioning ✓</li>
+          <li><strong>systemd units:</strong> <code>pulsar-controller.service</code> and <code>pulsar-agent-compute.service</code> in <code>deploy/systemd/</code> ✓</li>
+          <li><strong>Firewall Policies UI page:</strong> list, create, edit, delete; inline rule builder (priority, action, protocol, CIDR, port range) ✓</li>
+          <li><strong>pulsarctl ports list:</strong> ADDRESS column added via nested <code>fixed_ips[0].ip_address</code> extraction ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 10 -->
+    <div class="phase">
+      <div class="phase-label">Phase 10<br><span style="font-weight:400;color:#94a3b8">Apr 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Identity — Password Hashing, Token Revocation &amp; RBAC <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li><strong>Password hashing:</strong> bcrypt (<code>DefaultCost</code>) at <code>CreateUser</code> and <code>CreateToken</code>; legacy <code>dev-nohash</code> rows still accepted for smooth migration ✓</li>
+          <li><strong>Token revocation:</strong> <code>DELETE /auth/tokens</code> stores the token's <code>jti</code> in etcd at <code>/pulsar/auth/revoked/&lt;jti&gt;</code> with a TTL equal to the token's remaining lifetime; <code>AuthMiddleware</code> rejects revoked JTIs on every request across all API routes ✓</li>
+          <li><strong>Admin RBAC enforcement:</strong> <code>requireAdmin()</code> helper guards <code>UpdateProject</code>, <code>DeleteProject</code>, and <code>UpdateUser</code>; returns 403 for non-admin callers ✓</li>
+          <li><strong><code>UpdateUser</code>:</strong> <code>PATCH /users/{id}</code> — change role (<code>admin</code>/<code>member</code>) or reset password with bcrypt re-hash ✓</li>
+          <li><strong><code>UpdateProject</code>:</strong> <code>PATCH /projects/{id}</code> — rename project ✓</li>
+          <li><strong>JWT <code>jti</code> claim:</strong> added to every issued token to support precise revocation ✓</li>
+          <li><strong>Role carried correctly:</strong> <code>CreateToken</code> now reads role from DB instead of hard-coding <code>"member"</code> ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 11 -->
+    <div class="phase">
+      <div class="phase-label">Phase 11<br><span style="font-weight:400;color:#94a3b8">Apr 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Identity — SSO, Organizations &amp; Personal Access Tokens <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li><strong>Organizations:</strong> <code>organizations</code> table; <code>GET/POST/PATCH/DELETE /v1/orgs</code>; all projects + users scoped to an org; built-in <code>pulsar</code> default org; platform_admin-only management ✓</li>
+          <li><strong>OpenID Connect / SSO:</strong> <code>identity_providers</code> table; OIDC discovery via <code>/.well-known/openid-configuration</code>; authorize + callback endpoints; CSRF state stored in etcd (5 min TTL, single-use) ✓</li>
+          <li><strong>Federated identities:</strong> <code>federated_identities</code> link table; auto-provisioning new users from IDP claims; <code>last_login_at</code> tracking; <code>conflict DO UPDATE</code> for email re-use ✓</li>
+          <li><strong>IDP CRUD:</strong> <code>GET/POST/PATCH/DELETE /v1/orgs/{org_id}/idps</code>; org_admin-scoped; domain_hint for email-based discovery ✓</li>
+          <li><strong>IDP lookup endpoint:</strong> <code>GET /v1/auth/idps?email=…</code> — public, returns enabled IDPs by user-org lookup or domain_hint match ✓</li>
+          <li><strong>SSO login page:</strong> two-step login (email → IDP discovery → SSO buttons or password); <code>OIDCCallbackPage</code> stores JWT from query param ✓</li>
+          <li><strong><code>pulsarctl login sso</code>:</strong> browser OIDC flow; ephemeral loopback server on random port; opens browser; captures token; saves credentials ✓</li>
+          <li><strong>Personal access tokens (PATs):</strong> <code>personal_access_tokens</code> table; <code>pat_</code>-prefix opaque tokens (32 random bytes, base64url); bcrypt-hashed at rest; optional expiry; <code>GET/POST/DELETE /v1/auth/tokens/personal</code> ✓</li>
+          <li><strong>PAT auth in middleware:</strong> <code>AuthMiddleware</code> dual-path — <code>pat_</code> prefix → DB bcrypt lookup; else → JWT parse; async <code>last_used_at</code> update; nil-safe for tests ✓</li>
+          <li><strong><code>pulsarctl login token</code>:</strong> validate PAT against <code>/v1/projects</code> then save to <code>~/.config/pulsar/config.json</code> ✓</li>
+          <li><strong>Identity Providers UI:</strong> <code>IdpPage</code> — CRUD for org IDPs; enable/disable toggle; domain hint field ✓</li>
+          <li><strong>Organizations UI:</strong> <code>OrgsPage</code> — platform_admin view; create, rename, suspend, delete orgs ✓</li>
+          <li><strong>Access Tokens UI:</strong> <code>AccessTokensPage</code> — create with expiry presets (7d/30d/90d/1y/custom), list, revoke; one-time raw token reveal with clipboard copy ✓</li>
+          <li><strong>Project scope middleware:</strong> <code>ProjectScopeMiddleware</code> validates project membership + org boundary; platform_admin bypasses ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 12 -->
+    <div class="phase">
+      <div class="phase-label">Phase 12<br><span style="font-weight:400;color:#94a3b8">Q2–Q3 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-upcoming"></div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Quota Enforcement, Audit Logging &amp; LXD Driver <span class="badge badge-upcoming">Upcoming</span></div>
+        <ul class="phase-items">
+          <li>Quota enforcement at API layer (instances, vCPUs, RAM, volumes, floating IPs per project)</li>
+          <li>Audit logging — write to <code>audit_events</code> Postgres table consistently across all mutating API calls</li>
+          <li>Volume QoS (I/O limits via LVM / blkio cgroups)</li>
+          <li>LXD driver: lightweight container-based instances (REST API client integration)</li>
+          <li>mTLS enforcement between controller and agents</li>
+          <li>Host / hypervisor metrics export (per-node CPU, RAM, disk utilisation to Prometheus)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 13 -->
+    <div class="phase">
+      <div class="phase-label">Phase 13<br><span style="font-weight:400;color:#94a3b8">Q4 2026+</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-future"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Platform Maturity &amp; Advanced Storage <span class="badge badge-future">Future</span></div>
+        <ul class="phase-items">
+          <li>Ceph/RBD driver (RADOS block device, no iSCSI needed)</li>
+          <li>Cross-backend volume migration (LVM → Ceph, etc.)</li>
+          <li>Multipath iSCSI for replicated volumes</li>
+          <li>NFS / GlusterFS backend drivers</li>
+          <li>HA flavors: evacuation on compute node failure (requires shared/Ceph storage)</li>
+          <li>Token refresh; fine-grained per-resource RBAC</li>
+          <li>GENEVE tunnel encapsulation option alongside VXLAN</li>
+          <li>Dedicated DNS service (project-scoped DNS zones)</li>
+          <li>Subnet pools (allocate subnets from a pre-defined CIDR range)</li>
+          <li>Kubernetes Helm chart deployment</li>
+          <li>Prometheus alerting rules &amp; Grafana dashboards</li>
+          <li>Terraform provider (PATs are the prerequisite — now complete)</li>
+          <li>Comprehensive E2E test suite</li>
+        </ul>
+      </div>
+    </div>
+
+  </div><!-- /timeline -->
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  NETWORK REQUIREMENTS GAP TABLE                                       -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">Network Requirements Gap Analysis</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Requirement (CLAUDE.md)</th>
+        <th>Status</th>
+        <th>Notes / Phase</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Networks, subnets, routers, floating IPs, ports CRUD</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>All endpoints implemented, validated on test host</td>
+      </tr>
+      <tr>
+        <td>Security groups CRUD</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>Full CRUD, OVN port-group ACLs, stateful conntrack, remote-SG rules, default SG per project</td>
+      </tr>
+      <tr>
+        <td>FWaaS (router gateway firewall)</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>Full CRUD; one policy per router enforced; OVN <code>lr-policy</code> sync via agent; UI Firewall Policies page</td>
+      </tr>
+      <tr>
+        <td>OVS/OVN software-defined networking</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>ovn-nbctl CLI wrapper; full logical switch/router model</td>
+      </tr>
+      <tr>
+        <td>Tenant private networks (VXLAN)</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>VNI auto-allocated via etcd CAS counter</td>
+      </tr>
+      <tr>
+        <td>GENEVE tunneling</td>
+        <td><span class="badge badge-future">Future</span></td>
+        <td>OVN supports it; config option to add in Phase 8</td>
+      </tr>
+      <tr>
+        <td>Multiple subnets per network / subnet pools</td>
+        <td><span class="badge badge-partial">Partial</span></td>
+        <td>Multiple subnets per network ✓; allocation pools per subnet ✓; CIDR-pool auto-allocation (Phase 12)</td>
+      </tr>
+      <tr>
+        <td>External networks (provider, for NAT + floating IPs)</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>VLAN flat provider networks on physnet1</td>
+      </tr>
+      <tr>
+        <td>User-created routers (NAT gateways)</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>SetRouterGateway / ClearRouterGateway, SNAT validated</td>
+      </tr>
+      <tr>
+        <td>Floating IPs (inbound DNAT)</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>OVN lr-nat-add dnat_and_snat, auto-alloc from external subnet</td>
+      </tr>
+      <tr>
+        <td>Port security / security groups per instance</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>OVN ACLs per port via port groups; UI attach/remove on instance detail and ports pages</td>
+      </tr>
+      <tr>
+        <td>DHCP (per subnet)</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>OVN native DHCP options; DNS via first resolver in subnet</td>
+      </tr>
+      <tr>
+        <td>Dedicated DNS service</td>
+        <td><span class="badge badge-future">Future</span></td>
+        <td>Currently passes external resolver through DHCP</td>
+      </tr>
+      <tr>
+        <td>Port CRUD (attach to instances)</td>
+        <td><span class="badge badge-done">Done</span></td>
+        <td>Ports auto-created with instances; manual creation supported</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  DEPLOYMENT                                                           -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">Deployment &amp; Distribution</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+    <div>
+      <h3>Current (Docker Compose)</h3>
+      <ul style="font-size:9.5pt;color:#475569;padding-left:16px;margin-top:6px;">
+        <li><code>make up</code> — etcd, postgres, controller, 3 agents</li>
+        <li><code>make down / make logs</code></li>
+        <li>Test host: ubuntu@10.11.3.190</li>
+        <li>Config: <code>deploy/docker/pulsar.docker.yaml</code></li>
+      </ul>
+    </div>
+    <div>
+      <h3>Planned Distribution</h3>
+      <ul style="font-size:9.5pt;color:#475569;padding-left:16px;margin-top:6px;">
+        <li>Single binary: <code>pulsar controller</code> / <code>pulsar agent</code></li>
+        <li>systemd units ✓ (<code>deploy/systemd/</code>)</li>
+        <li>Docker Compose ✓ (current default)</li>
+        <li>Ansible compute node role ✓ (<code>deploy/ansible/</code>)</li>
+        <li>Kubernetes + Helm chart (Phase 13)</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  FOOTER                                                               -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="doc-footer">
+  <span>Pulsar IaaS — Internal Engineering Document</span>
+  <span>April 2026 · Phase 11 complete · SSO/OIDC, organizations, per-org IDPs &amp; personal access tokens delivered · Next: quota enforcement + audit logging</span>
+</div>
+
+</body>
+</html>

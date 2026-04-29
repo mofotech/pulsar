@@ -1,0 +1,94 @@
+---
+# Configure Open vSwitch and ovn-controller on the compute node.
+#
+# The compute node runs ovn-controller (from ovn-host) which connects to the
+# OVN Southbound DB on the controller node. OVN then programs flows into br-int
+# on this node so that VM vNICs (vnetX) get proper overlay connectivity.
+#
+# Bridge layout:
+#   br-int  — OVN integration bridge (all VM ports attached here)
+#   br-ex   — external / provider bridge (carries the physnet to the underlay)
+#               └── ovn_external_interface (e.g. ens3) plugged in here
+#
+# OVS external_ids set here are read by ovn-controller to self-register the
+# chassis with OVN and establish the Geneve tunnel mesh to other nodes.
+
+- name: Ensure openvswitch-switch is running
+  ansible.builtin.service:
+    name: openvswitch-switch
+    state: started
+    enabled: true
+
+- name: Create OVS integration bridge (br-int)
+  ansible.builtin.command:
+    cmd: ovs-vsctl --may-exist add-br {{ ovs_bridge }}
+  changed_when: false
+
+- name: Create OVS external bridge (br-ex)
+  ansible.builtin.command:
+    cmd: ovs-vsctl --may-exist add-br {{ ovn_external_bridge }}
+  changed_when: false
+
+- name: Set br-ex fail mode to standalone
+  ansible.builtin.command:
+    cmd: ovs-vsctl set bridge {{ ovn_external_bridge }} fail_mode=standalone
+  changed_when: false
+
+- name: Add external interface to br-ex
+  ansible.builtin.command:
+    cmd: ovs-vsctl --may-exist add-port {{ ovn_external_bridge }} {{ ovn_external_interface }}
+  changed_when: false
+
+# OVS external_ids that ovn-controller reads at startup and whenever they change.
+# node_id defaults to inventory_hostname if not set per-host in inventory.
+- name: Set OVS system hostname (used as OVN chassis name)
+  ansible.builtin.command:
+    cmd: ovs-vsctl set Open_vSwitch . external_ids:hostname={{ node_id | default(inventory_hostname) }}
+  changed_when: false
+
+- name: Set OVN remote (Southbound DB address)
+  ansible.builtin.command:
+    cmd: ovs-vsctl set Open_vSwitch . external_ids:ovn-remote={{ ovn_remote }}
+  changed_when: false
+  notify: Restart ovn-controller
+
+- name: Set OVN encap type
+  ansible.builtin.command:
+    cmd: ovs-vsctl set Open_vSwitch . external_ids:ovn-encap-type={{ ovn_encap_type }}
+  changed_when: false
+  notify: Restart ovn-controller
+
+- name: Set OVN encap IP (this node's tunnel endpoint IP)
+  ansible.builtin.command:
+    cmd: ovs-vsctl set Open_vSwitch . external_ids:ovn-encap-ip={{ ovn_encap_ip | default(ansible_default_ipv4.address) }}
+  changed_when: false
+  notify: Restart ovn-controller
+
+- name: Set physnet → bridge mapping
+  ansible.builtin.command:
+    cmd: >
+      ovs-vsctl set Open_vSwitch .
+      external_ids:ovn-bridge-mappings={{ ovn_physnet_name }}:{{ ovn_external_bridge }}
+  changed_when: false
+  notify: Restart ovn-controller
+
+- name: Ensure ovn-controller is enabled and running
+  ansible.builtin.service:
+    name: ovn-controller
+    state: started
+    enabled: true
+
+# Flush handlers now so ovn-controller is using the correct config before the
+# agents start and try to program OVN resources on this chassis.
+- name: Flush handlers to apply OVN config
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for OVN chassis to register in Southbound DB
+  ansible.builtin.command:
+    cmd: ovs-vsctl get Open_vSwitch . external_ids:system-id
+  register: chassis_id_result
+  changed_when: false
+
+- name: Display chassis system-id
+  ansible.builtin.debug:
+    msg: "OVN chassis system-id: {{ chassis_id_result.stdout | trim('\"') }}"

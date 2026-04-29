@@ -1,0 +1,13 @@
+[Unit]
+Description=Pulsar Controller
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pulsar controller --config /etc/pulsar/pulsar.yaml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

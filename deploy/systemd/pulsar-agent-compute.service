@@ -1,0 +1,13 @@
+[Unit]
+Description=Pulsar Compute Agent
+After=network.target libvirtd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pulsar agent --pillar=compute --config /etc/pulsar/pulsar.yaml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,71 @@
+---
+# Install all required system packages.
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install OVS / OVN host packages
+  ansible.builtin.apt:
+    name:
+      - openvswitch-switch
+      - ovn-host
+      - ovn-common
+    state: present
+
+- name: Install libvirt and QEMU packages
+  ansible.builtin.apt:
+    name:
+      - qemu-kvm
+      - qemu-utils
+      - libvirt-daemon-system
+      - libvirt-clients
+      - virtinst
+      - cpu-checker
+      - cloud-image-utils
+    state: present
+
+- name: Install iSCSI initiator packages
+  ansible.builtin.apt:
+    name:
+      - open-iscsi
+      - iscsiadm
+    state: present
+  # iscsiadm may not exist as a standalone package on all Ubuntu versions;
+  # open-iscsi provides it — the ignore_errors allows graceful fallback.
+  ignore_errors: true
+
+- name: Install tgt (iSCSI target) packages
+  ansible.builtin.apt:
+    name:
+      - tgt
+    state: present
+
+- name: Install LVM2
+  ansible.builtin.apt:
+    name:
+      - lvm2
+      - thin-provisioning-tools
+    state: present
+
+- name: Install miscellaneous utilities
+  ansible.builtin.apt:
+    name:
+      - curl
+      - jq
+      - netcat-openbsd
+      - python3-pip
+    state: present
+
+- name: Ensure required services are enabled at boot
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - openvswitch-switch
+    - libvirtd
+    - tgt
+    - iscsid
+  ignore_errors: true

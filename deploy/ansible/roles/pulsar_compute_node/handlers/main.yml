@@ -1,0 +1,26 @@
+---
+- name: Restart openvswitch
+  ansible.builtin.service:
+    name: openvswitch-switch
+    state: restarted
+
+- name: Restart ovn-controller
+  ansible.builtin.service:
+    name: ovn-controller
+    state: restarted
+
+- name: Restart libvirtd
+  ansible.builtin.service:
+    name: libvirtd
+    state: restarted
+
+- name: Restart tgtd
+  ansible.builtin.service:
+    name: tgt
+    state: restarted
+
+- name: Reload docker compose agents
+  ansible.builtin.command:
+    cmd: docker compose -f {{ pulsar_config_dir }}/docker-compose-agent.yml up -d --pull never
+    chdir: "{{ pulsar_config_dir }}"
+  changed_when: true

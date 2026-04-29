@@ -1,0 +1,24 @@
+---
+# Example inventory — copy to hosts.yml and fill in your node details.
+#
+# Each host needs:
+#   ansible_host   — IP or FQDN used for SSH
+#   node_id        — unique name for this agent in the Pulsar cluster
+#   ovn_encap_ip   — IP of the interface used for Geneve overlay tunnels
+#                    (usually the management / data-plane NIC IP)
+
+all:
+  children:
+    compute_nodes:
+      hosts:
+        compute1:
+          ansible_host: 10.11.3.191
+          ansible_user: ubuntu
+          node_id: ag-pulsar-2
+          ovn_encap_ip: 10.11.3.191
+
+        compute2:
+          ansible_host: 10.11.3.192
+          ansible_user: ubuntu
+          node_id: ag-pulsar-3
+          ovn_encap_ip: 10.11.3.192

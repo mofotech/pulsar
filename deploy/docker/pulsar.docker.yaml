@@ -1,0 +1,63 @@
+controller:
+  listen_http: ":8080"
+  listen_grpc: ":9090"
+  etcd:
+    endpoints:
+      - "etcd:2379"
+  postgres:
+    dsn: "postgres://pulsar:pulsar@postgres/pulsar?sslmode=disable"
+  jwt:
+    secret: "pulsar-dev-change-in-production"
+    expiry: "24h"
+  image_store_dir: "/var/lib/pulsar/image-store"
+  # public_url must be an IP/FQDN reachable by ALL compute nodes, not the
+  # Docker-internal "controller" hostname. Remote agents download images via
+  # this URL; if it resolves only inside the controller's Docker network the
+  # download will fail with "dial tcp: lookup controller: server misbehaving".
+  public_url: "http://controller:8080"
+  # oidc_base_url is the externally-reachable address used in OAuth2 redirect_uris.
+  # Must match the "Valid redirect URIs" you registered in your IDP (Keycloak, etc.).
+  # Set to the address the *browser* uses to reach the UI — Vite proxies /v1/* to
+  # the controller, so the callback lands on the dev server and is forwarded correctly.
+  oidc_base_url: "http://localhost:5173"
+
+agent:
+  controller_grpc: "controller:9090"
+  node_id: "ag-pulsar-1"
+  compute:
+    hypervisor_drivers:
+      - kvm
+    # These paths MUST match the bind-mount destination AND be accessible
+    # by the host's libvirtd — they are identical inside the container and
+    # on the host so libvirt can resolve disk image paths directly.
+    image_cache_dir: "/var/lib/pulsar/images"
+    instance_dir:    "/var/lib/pulsar/instances"
+    # domain_type: "kvm" for hardware acceleration (default), "qemu" for software emulation.
+    # emulator: path to the QEMU binary used by libvirt.
+    # /usr/bin/kvm is a wrapper that does not work on all distros; prefer the full path.
+    domain_type: "kvm"
+    emulator:    "/usr/bin/qemu-system-x86_64"
+  network:
+    external_interface: "ens3"
+    overlay_interface:  "ens3"
+    vxlan_port: 4789
+    ovn_nb_addr: "unix:/var/run/ovn/ovnnb_db.sock"
+    ovs_bridge:  "br-int"
+    physnet_name: "physnet1"
+    ovn_chassis_name: "ag-pulsar-1"
+  storage:
+    # node_ip: the IP the storage agent advertises to iSCSI initiators (compute nodes).
+    # Leave empty to auto-detect from the primary network interface.
+    # In bare-metal deployments set this to the storage network IP explicitly.
+    node_ip: ""
+    backends:
+      lvm:
+        volume_group: "pulsar-vg"
+        thin_pool:    "pulsar-pool"
+
+logging:
+  level: "info"
+  format: "console"
+
+telemetry:
+  prometheus_listen: ":9091"

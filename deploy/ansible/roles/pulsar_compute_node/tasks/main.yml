@@ -1,0 +1,19 @@
+---
+# Entry point — imports task files in order.
+- ansible.builtin.import_tasks: packages.yml
+  tags: [packages]
+
+- ansible.builtin.import_tasks: ovs_ovn.yml
+  tags: [ovs_ovn]
+
+- ansible.builtin.import_tasks: libvirt.yml
+  tags: [libvirt]
+
+- ansible.builtin.import_tasks: storage.yml
+  tags: [storage]
+
+- ansible.builtin.import_tasks: docker.yml
+  tags: [docker]
+
+- ansible.builtin.import_tasks: pulsar_agents.yml
+  tags: [agents]

@@ -1,0 +1,138 @@
+{{- if .Values.infraNetwork.enabled -}}
+# Runs OVS (ovsdb-server + ovs-vswitchd) and OVN (ovn-controller, and
+# optionally ovn-northd + NB/SB databases when infraNetwork.ovnNorthdEnabled=true)
+# on every network node as a container, removing the need to install OVN/OVS on
+# the host.
+#
+# The openvswitch kernel module is loaded by the init container. It must be
+# present in the host kernel (standard in Ubuntu 22.04+ kernels).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "pulsar.fullname" . }}-infra-network
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: infra-network
+spec:
+  selector:
+    matchLabels:
+      {{- include "pulsar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: infra-network
+  template:
+    metadata:
+      labels:
+        {{- include "pulsar.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: infra-network
+    spec:
+      {{- include "pulsar.imagePullSecrets" . | nindent 6 }}
+      # Host network so OVS/OVN can manage the real host network stack.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+        - name: load-modules
+          image: alpine
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - modprobe openvswitch && modprobe nf_conntrack && modprobe br_netfilter
+          volumeMounts:
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+      containers:
+        - name: infra-network
+          image: {{ printf "%s:%s" .Values.infraNetwork.image.repository .Values.infraNetwork.image.tag }}
+          imagePullPolicy: {{ .Values.infraNetwork.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+                - SYS_MODULE
+                - SYS_ADMIN
+          env:
+            # OVN SB address — leave as unix socket when ovnNorthdEnabled=true
+            # (NB/SB databases run in this same container); set to
+            # tcp:<central-ip>:6642 when using an external OVN central.
+            - name: OVN_REMOTE
+              value: {{ .Values.infraNetwork.ovnRemote | default "unix:/var/run/ovn/ovnsb_db.sock" | quote }}
+            - name: OVN_ENCAP_TYPE
+              value: "geneve"
+            # OVN_ENCAP_IP: auto-detected from primary route if empty.
+            - name: OVN_ENCAP_IP
+              value: {{ .Values.infraNetwork.ovnEncapIP | quote }}
+            # OVN_BRIDGE_MAPPINGS maps physical networks to OVS bridges.
+            - name: OVN_BRIDGE_MAPPINGS
+              value: {{ printf "%s:%s" .Values.agentNetwork.physnetName (.Values.infraNetwork.ovnProviderBridge | default "br-ex") | quote }}
+            - name: OVN_PROVIDER_BRIDGE
+              value: {{ .Values.infraNetwork.ovnProviderBridge | default "br-ex" | quote }}
+            - name: OVN_PROVIDER_IFACE
+              value: {{ .Values.infraNetwork.ovnProviderIface | quote }}
+            - name: OVS_BRIDGE
+              value: {{ .Values.agentNetwork.ovsBridge | quote }}
+            # Set OVN_NORTHD=true on the node that hosts the OVN control plane.
+            # Use the pulsar.io/ovn-central=true node label + a matching
+            # nodeSelector on a second infra-network-central DaemonSet for
+            # multi-node setups, or enable for all nodes in single-node dev.
+            - name: OVN_NORTHD
+              value: {{ .Values.infraNetwork.ovnNorthdEnabled | toString | quote }}
+            # OVN chassis name = node hostname via Downward API.
+            - name: OVN_CHASSIS_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            # OVS runtime sockets (also read by the network agent DaemonSet).
+            - name: ovs-run
+              mountPath: /var/run/openvswitch
+            # OVN runtime sockets (also read by the network agent DaemonSet).
+            - name: ovn-run
+              mountPath: /var/run/ovn
+            # OVS config database (persisted on the host).
+            - name: ovs-etc
+              mountPath: /etc/openvswitch
+            # OVN NB/SB databases when running in northd mode.
+            - name: ovn-lib
+              mountPath: /var/lib/ovn
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+          {{- with .Values.infraNetwork.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: ovs-run
+          hostPath:
+            path: /var/run/openvswitch
+            type: DirectoryOrCreate
+        - name: ovn-run
+          hostPath:
+            path: /var/run/ovn
+            type: DirectoryOrCreate
+        - name: ovs-etc
+          hostPath:
+            path: /etc/openvswitch
+            type: DirectoryOrCreate
+        - name: ovn-lib
+          hostPath:
+            path: /var/lib/ovn
+            type: DirectoryOrCreate
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+      {{- with .Values.infraNetwork.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.infraNetwork.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+{{- end }}

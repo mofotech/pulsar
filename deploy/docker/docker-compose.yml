@@ -1,0 +1,164 @@
+name: pulsar
+
+# ── Infrastructure ─────────────────────────────────────────────────────────────
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.15
+    restart: unless-stopped
+    command:
+      - etcd
+      - --name=pulsar-node1
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --initial-cluster=pulsar-node1=http://etcd:2380
+      - --initial-cluster-token=pulsar
+      - --initial-cluster-state=new
+    volumes:
+      - etcd-data:/etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://etcd:2379", "endpoint", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       pulsar
+      POSTGRES_USER:     pulsar
+      POSTGRES_PASSWORD: pulsar
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+# ── Control plane ──────────────────────────────────────────────────────────────
+
+  controller:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: pulsar:dev
+    restart: unless-stopped
+    command: ["controller", "--config", "/etc/pulsar/pulsar.yaml"]
+    ports:
+      - "8080:8080"   # REST API
+      - "9090:9090"   # gRPC (agent gateway)
+      - "9091:9091"   # Prometheus metrics
+    volumes:
+      - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      - /var/lib/pulsar/image-store:/var/lib/pulsar/image-store
+    depends_on:
+      etcd:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+# ── Data plane agents ──────────────────────────────────────────────────────────
+
+  agent-compute:
+    image: pulsar:dev
+    restart: unless-stopped
+    command: ["agent", "--pillar=compute", "--config", "/etc/pulsar/pulsar.yaml"]
+    # Run as root so UID 0 can access the libvirt socket (owner: root:libvirt 0660)
+    user: root
+    volumes:
+      - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      # libvirt socket — agent communicates with host libvirtd directly
+      - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
+      # Image and instance dirs MUST use the same host path so libvirtd can
+      # resolve disk image paths when creating domains
+      - /var/lib/pulsar/images:/var/lib/pulsar/images
+      - /var/lib/pulsar/instances:/var/lib/pulsar/instances
+      # iSCSI: iscsiadm and udevadm need access to the host's /dev, /sys,
+      # and the open-iscsi initiator socket
+      - /dev:/dev
+      - /sys:/sys
+      - /run/udev:/run/udev
+      - /lib/modules:/lib/modules:ro
+      # iscsiadm runs via nsenter into the host network namespace so it reaches
+      # the host's iscsid abstract socket (@ISCSIADM_ABSTRACT_NAMESPACE)
+      - /proc/1/ns:/host-proc-ns:ro
+      - /etc/iscsi:/etc/iscsi
+    devices:
+      - /dev/kvm:/dev/kvm
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      controller:
+        condition: service_healthy
+    # privileged: iscsid requires mlockall + NETLINK_ISCSI; libvirt needs KVM ioctls
+    privileged: true
+
+  agent-network:
+    image: pulsar:dev
+    restart: unless-stopped
+    command: ["agent", "--pillar=network", "--config", "/etc/pulsar/pulsar.yaml"]
+    user: root
+    # Host networking so the agent can manage bridges, VXLANs, and iptables
+    # directly on the host network stack. Because we bypass Docker DNS, point
+    # the agent at the controller via the published host port (127.0.0.1:9090).
+    network_mode: host
+    environment:
+      - PULSAR_AGENT_CONTROLLER_GRPC=127.0.0.1:9090
+    volumes:
+      - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      - /var/run/ovn:/var/run/ovn          # OVN NB socket (host-installed OVN)
+      - /var/run/openvswitch:/var/run/openvswitch  # OVS socket for ovs-vsctl
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_MODULE
+    depends_on:
+      controller:
+        condition: service_healthy
+
+  agent-storage:
+    image: pulsar:dev
+    restart: unless-stopped
+    command: ["agent", "--pillar=storage", "--config", "/etc/pulsar/pulsar.yaml"]
+    user: root
+    # Host networking so tgtd binds on the real host IP (port 3260) and is
+    # reachable by iSCSI initiators on compute nodes.
+    network_mode: host
+    environment:
+      - PULSAR_AGENT_CONTROLLER_GRPC=127.0.0.1:9090
+    volumes:
+      - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      # LVM needs access to the host's device mapper and block devices.
+      # /dev/mapper holds the activated LV device nodes (e.g. pulsar--vg-pulsar--pool).
+      # /dev/vg-name holds the LV symlinks after activation.
+      # /run/lock/lvm is the LVM locking directory.
+      - /dev:/dev
+      - /run/lock/lvm:/run/lock/lvm
+      - /etc/lvm:/etc/lvm
+      # Mount host's tgtd socket dir so tgtadm in the container talks to the
+      # same tgtd instance that is listening on port 3260 (host's systemd tgtd).
+      - /run/tgtd:/run/tgtd
+    # privileged gives access to LVM ioctls, device mapper, and tgtd raw access
+    privileged: true
+    depends_on:
+      controller:
+        condition: service_healthy
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+
+volumes:
+  etcd-data:
+  pg-data:

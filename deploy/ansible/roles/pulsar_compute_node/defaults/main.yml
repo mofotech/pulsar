@@ -1,0 +1,42 @@
+---
+# Role defaults — all overridable from group_vars or host_vars.
+
+# Controller
+pulsar_controller_grpc: "localhost:9090"
+
+# OVN / OVS
+ovn_remote: "tcp:localhost:6642"
+ovn_physnet_name: "physnet1"
+ovn_external_bridge: "br-ex"
+ovn_external_interface: "ens3"
+ovn_encap_type: "geneve"
+ovs_bridge: "br-int"
+
+# Docker
+pulsar_image: "pulsar:dev"
+pulsar_config_dir: "/etc/pulsar"
+
+# Compute
+compute_hypervisor_drivers: ["kvm"]
+compute_image_cache_dir: "/var/lib/pulsar/images"
+compute_instance_dir: "/var/lib/pulsar/instances"
+compute_domain_type: "kvm"
+compute_emulator: "/usr/bin/qemu-system-x86_64"
+
+# Network
+network_overlay_interface: "ens3"
+# ovn_nb_addr: for remote compute nodes, set to tcp:<controller_ip>:6641
+# (the NB DB must be bound to 0.0.0.0 on the controller first)
+network_ovn_nb_addr: "unix:/var/run/ovn/ovnnb_db.sock"
+
+# Storage
+storage_node_ip: ""
+lvm_volume_group: "pulsar-vg"
+lvm_thin_pool: "pulsar-pool"
+lvm_pvs: []
+lvm_pool_size: "80%FREE"
+
+# Logging / telemetry
+logging_level: "info"
+logging_format: "json"
+telemetry_prometheus_listen: ":9091"

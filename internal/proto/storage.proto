@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package pulsar.storage.v1;
+
+option go_package = "github.com/agomez/pulsar/gen/proto/storage;storagepb";
+
+// Task payloads for storage operations dispatched to storage agents.
+
+message CreateVolumeTask {
+  string id           = 1;
+  string name         = 2;
+  int64  size_gb      = 3;
+  string backend      = 4; // "lvm" | "ceph" | "nfs"
+  string source_snapshot_id = 5; // optional
+}
+
+message DeleteVolumeTask {
+  string id = 1;
+}
+
+message AttachVolumeTask {
+  string volume_id    = 1;
+  string instance_id  = 2;
+  string device_path  = 3; // e.g. "/dev/vdb"
+  string compute_host = 4; // hostname of the compute node
+}
+
+message DetachVolumeTask {
+  string volume_id   = 1;
+  string instance_id = 2;
+}
+
+message CreateSnapshotTask {
+  string snapshot_id = 1;
+  string volume_id   = 2;
+  string name        = 3;
+}
+
+message DeleteSnapshotTask {
+  string snapshot_id = 1;
+}
+
+message ExtendVolumeTask {
+  string volume_id   = 1;
+  int64  new_size_gb = 2;
+}
+
+// Results
+
+message AttachVolumeResult {
+  string device_path = 1; // actual device path on compute node (e.g. /dev/vdb)
+}

@@ -1,0 +1,86 @@
+---
+# Deploy the Pulsar agent config and Docker Compose file, then start the agents.
+#
+# On a compute-only node we run three agents:
+#   agent-compute  — libvirt/KVM VM lifecycle
+#   agent-network  — OVN port/ACL programming (host networking)
+#   agent-storage  — LVM thin volumes + iSCSI target management (host networking)
+#
+# The controller and infrastructure (etcd, postgres) stay on the primary node.
+
+- name: Ensure config directory exists
+  ansible.builtin.file:
+    path: "{{ pulsar_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Template agent config file
+  ansible.builtin.template:
+    src: pulsar-agent.yaml.j2
+    dest: "{{ pulsar_config_dir }}/pulsar-agent.yaml"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Reload docker compose agents
+
+- name: Template docker-compose agent file
+  ansible.builtin.template:
+    src: docker-compose-agent.yml.j2
+    dest: "{{ pulsar_config_dir }}/docker-compose-agent.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload docker compose agents
+
+- name: Pull Pulsar image (if accessible from registry)
+  ansible.builtin.command:
+    cmd: docker pull {{ pulsar_image }}
+  register: docker_pull_result
+  changed_when: "'Status: Downloaded' in docker_pull_result.stdout"
+  failed_when: false  # Image may be loaded from a tar instead of a registry
+
+- name: Check that Pulsar image is available locally
+  ansible.builtin.command:
+    cmd: docker image inspect {{ pulsar_image }}
+  register: image_check
+  changed_when: false
+  failed_when: image_check.rc != 0
+  # If this fails, pre-load the image:
+  #   docker save pulsar:dev | ssh <node> docker load
+
+- name: Flush handlers to apply config changes before starting agents
+  ansible.builtin.meta: flush_handlers
+
+- name: Start Pulsar agents via Docker Compose
+  ansible.builtin.command:
+    cmd: docker compose -f {{ pulsar_config_dir }}/docker-compose-agent.yml up -d --pull never
+    chdir: "{{ pulsar_config_dir }}"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+
+- name: Wait for agents to become healthy
+  ansible.builtin.command:
+    cmd: >
+      docker compose -f {{ pulsar_config_dir }}/docker-compose-agent.yml
+      ps --format json
+  register: agent_ps
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: >
+    (agent_ps.stdout | from_json | selectattr('Health', 'equalto', 'healthy') | list | length) >= 1
+    or (agent_ps.stdout | from_json | selectattr('State', 'equalto', 'running') | list | length) >= 3
+  ignore_errors: true
+
+- name: Show agent container status
+  ansible.builtin.command:
+    cmd: docker compose -f {{ pulsar_config_dir }}/docker-compose-agent.yml ps
+    chdir: "{{ pulsar_config_dir }}"
+  changed_when: false
+  register: agent_status
+
+- name: Display agent status
+  ansible.builtin.debug:
+    msg: "{{ agent_status.stdout_lines }}"

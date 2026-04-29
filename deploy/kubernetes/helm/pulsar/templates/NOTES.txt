@@ -1,0 +1,32 @@
+Pulsar has been deployed!
+
+Controller endpoints:
+  REST API:        {{ .Values.controller.service.type }} {{ include "pulsar.fullname" . }}-controller:{{ .Values.controller.service.httpPort }}
+  gRPC (agents):   {{ include "pulsar.fullname" . }}-controller:{{ .Values.controller.service.grpcPort }}
+  Metrics:         {{ include "pulsar.fullname" . }}-controller:{{ .Values.controller.service.metricsPort }}
+
+{{- if eq .Values.controller.service.type "NodePort" }}
+  To access the REST API via NodePort:
+    export NODE_PORT=$(kubectl get svc {{ include "pulsar.fullname" . }}-controller -o jsonpath="{.spec.ports[?(@.name=='http')].nodePort}")
+    export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+    echo "REST API: http://$NODE_IP:$NODE_PORT"
+{{- else if eq .Values.controller.service.type "LoadBalancer" }}
+  Waiting for LoadBalancer IP (may take a few minutes):
+    kubectl get svc {{ include "pulsar.fullname" . }}-controller --watch
+{{- else }}
+  To port-forward the REST API locally:
+    kubectl port-forward svc/{{ include "pulsar.fullname" . }}-controller 8080:{{ .Values.controller.service.httpPort }}
+{{- end }}
+
+Default login:
+  URL:      http://localhost:8080  (after port-forward)
+  Email:    admin@pulsar.dev
+  Password: admin  ← CHANGE THIS IMMEDIATELY
+
+Node labelling for agent DaemonSets:
+  kubectl label node <node> pulsar.io/pillar=compute   # for KVM compute nodes
+  kubectl label node <node> pulsar.io/pillar=network   # for OVN/OVS network nodes
+  kubectl label node <node> pulsar.io/pillar=storage   # for LVM/iSCSI storage nodes
+
+Documentation:
+  https://github.com/agomez/pulsar

@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+# Infrastructure image for Pulsar storage nodes.
+# Provides: tgt (iSCSI target daemon), LVM2
+#
+# Build:
+#   docker build -t <registry>/pulsar-infra-storage:<tag> \
+#     -f deploy/docker/Dockerfile.infra-storage .
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        lvm2 \
+        thin-provisioning-tools \
+        tgt \
+        iproute2 \
+        kmod \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /run/lock/lvm /etc/lvm /run/tgtd
+
+COPY deploy/docker/infra/storage-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

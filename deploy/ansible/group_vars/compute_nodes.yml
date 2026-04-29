@@ -1,0 +1,93 @@
+---
+# Group variables for compute_nodes.
+# Copy this file to group_vars/compute_nodes.yml and adjust for your environment.
+
+# ── Controller ──────────────────────────────────────────────────────────────────
+
+# gRPC address of the Pulsar controller, reachable from every compute node.
+pulsar_controller_grpc: "10.11.3.190:9090"
+
+# ── OVN / OVS ──────────────────────────────────────────────────────────────────
+
+# TCP address of the OVN Southbound DB (hosted on the controller node).
+# ovn-controller on each compute node connects here to receive flow programming.
+ovn_remote: "tcp:10.11.3.190:6642"
+
+# Physical network name that maps to the external bridge.
+# Must match the physnet configured in the Pulsar controller.
+ovn_physnet_name: "physnet1"
+
+# Name of the OVS bridge that carries external / provider traffic.
+ovn_external_bridge: "br-ex"
+
+# Name of the physical NIC to add to br-ex for external connectivity.
+# This is typically the NIC that has the node's public/provider IP.
+ovn_external_interface: "ens3"
+
+# Geneve encapsulation type (geneve recommended; vxlan also supported).
+ovn_encap_type: "geneve"
+
+# OVS integration bridge name (leave as br-int unless you have a reason to change).
+ovs_bridge: "br-int"
+
+# ── Docker ─────────────────────────────────────────────────────────────────────
+
+# Docker image to use for all Pulsar agents.
+pulsar_image: "pulsar:dev"
+
+# Directory where the compose file and agent config will be placed on the node.
+pulsar_config_dir: "/etc/pulsar"
+
+# ── Compute agent ──────────────────────────────────────────────────────────────
+
+# Hypervisor drivers to enable.
+compute_hypervisor_drivers:
+  - kvm
+
+# Paths for VM images and instance disks (must match what libvirtd sees).
+compute_image_cache_dir: "/var/lib/pulsar/images"
+compute_instance_dir: "/var/lib/pulsar/instances"
+
+# libvirt domain type: "kvm" (hardware acceleration) or "qemu" (software).
+compute_domain_type: "kvm"
+
+# Full path to the QEMU binary.
+compute_emulator: "/usr/bin/qemu-system-x86_64"
+
+# ── Network agent ──────────────────────────────────────────────────────────────
+
+# NIC used for overlay (Geneve) tunnels. Often the same as the external NIC.
+network_overlay_interface: "ens3"
+
+# Address of the OVN Northbound DB that the network agent connects to when
+# running ovn-nbctl commands (e.g. to program lr-policies).
+# For compute-only nodes this MUST be a TCP address pointing at the controller.
+# The NB DB was bound to 0.0.0.0:6641 with:
+#   sudo ovn-nbctl set-connection ptcp:6641:0.0.0.0
+network_ovn_nb_addr: "tcp:10.11.3.190:6641"
+
+# ── Storage agent ──────────────────────────────────────────────────────────────
+
+# IP that the storage agent advertises to iSCSI initiators.
+# Leave empty to auto-detect from the primary interface.
+storage_node_ip: ""
+
+# LVM volume group that Pulsar will allocate thin volumes from.
+lvm_volume_group: "pulsar-vg"
+
+# LVM thin pool name inside the volume group.
+lvm_thin_pool: "pulsar-pool"
+
+# Disk(s) to initialise as a PV and add to the volume group.
+# CAUTION: these disks will be wiped. Set to [] if the VG already exists.
+# Example: ["/dev/sdb", "/dev/sdc"]
+lvm_pvs: []
+
+# Thin pool size as a percentage of the VG (e.g. "80%FREE").
+lvm_pool_size: "80%FREE"
+
+# ── Logging / telemetry ────────────────────────────────────────────────────────
+
+logging_level: "info"
+logging_format: "json"
+telemetry_prometheus_listen: ":9091"

@@ -1,0 +1,94 @@
+{{- if .Values.agentStorage.enabled -}}
+# Runs on every node labelled pulsar.io/pillar=storage.
+# Requires hostNetwork (tgtd binds on the real host IP:3260 for iSCSI) and
+# privileged (LVM ioctls, device mapper, tgtd raw access).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "pulsar.fullname" . }}-agent-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-storage
+spec:
+  selector:
+    matchLabels:
+      {{- include "pulsar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent-storage
+  template:
+    metadata:
+      {{- with .Values.agentStorage.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "pulsar.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent-storage
+    spec:
+      {{- include "pulsar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "pulsar.serviceAccountName" . }}
+      # hostNetwork so tgtd binds on the real host IP (port 3260) and is
+      # reachable by iSCSI initiators on compute nodes.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: agent-storage
+          image: {{ include "pulsar.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["agent", "--pillar=storage", "--config", "/etc/pulsar/pulsar.yaml"]
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          env:
+            - name: PULSAR_AGENT_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pulsar
+              readOnly: true
+            # LVM needs access to host block devices and device mapper.
+            - name: host-dev
+              mountPath: /dev
+            - name: host-lvm-lock
+              mountPath: /run/lock/lvm
+            - name: host-lvm-config
+              mountPath: /etc/lvm
+            # tgtadm socket — talks to host tgtd instance on port 3260.
+            - name: host-tgtd
+              mountPath: /run/tgtd
+          {{- with .Values.agentStorage.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "pulsar.fullname" . }}-config
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-lvm-lock
+          hostPath:
+            path: /run/lock/lvm
+            type: DirectoryOrCreate
+        - name: host-lvm-config
+          hostPath:
+            path: /etc/lvm
+            type: DirectoryOrCreate
+        - name: host-tgtd
+          hostPath:
+            path: /run/tgtd
+            type: DirectoryOrCreate
+      {{- with .Values.agentStorage.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentStorage.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+{{- end }}

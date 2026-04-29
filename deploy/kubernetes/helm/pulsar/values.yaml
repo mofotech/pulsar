@@ -1,0 +1,253 @@
+# -- Override chart name.
+nameOverride: ""
+# -- Override fully qualified app name.
+fullnameOverride: ""
+
+# ── Image ─────────────────────────────────────────────────────────────────────
+image:
+  repository: pulsar
+  tag: latest
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# ── Service Account ───────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ── Controller ────────────────────────────────────────────────────────────────
+controller:
+  replicaCount: 1
+  # Port bindings inside the container (should match config).
+  listenHTTP: ":8080"
+  listenGRPC: ":9090"
+  # Directory where uploaded OS images are stored; backed by a PVC.
+  imageStoreDir: "/var/lib/pulsar/image-store"
+  # publicURL must be reachable by ALL compute nodes for image downloads.
+  publicURL: "http://pulsar-controller:8080"
+  # oidcBaseURL — externally-reachable URL used in OAuth2 redirect_uris.
+  # Must match "Valid redirect URIs" registered in your IDP (Keycloak, etc.).
+  oidcBaseURL: ""
+  # consoleVNCHost — host/IP the browser connects to for VNC console.
+  consoleVNCHost: ""
+  service:
+    type: ClusterIP
+    httpPort: 8080
+    grpcPort: 9090
+    metricsPort: 9091
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 50Gi
+    accessMode: ReadWriteOnce
+    # Supply an existing PVC name to skip creation.
+    existingClaim: ""
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podSecurityContext: {}
+
+# ── JWT ───────────────────────────────────────────────────────────────────────
+jwt:
+  # Change this in production — used to sign all API tokens.
+  secret: "pulsar-change-in-production"
+  expiry: "24h"
+  # Supply an existing Secret instead of creating one.
+  existingSecret: ""
+  existingSecretKey: "jwt-secret"
+
+# ── etcd ──────────────────────────────────────────────────────────────────────
+etcd:
+  # Set to false to use an external etcd cluster.
+  enabled: true
+  image:
+    repository: quay.io/coreos/etcd
+    tag: v3.5.15
+    pullPolicy: IfNotPresent
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 8Gi
+    accessMode: ReadWriteOnce
+  resources: {}
+  # Used when etcd.enabled=false — list ALL client endpoints.
+  external:
+    endpoints: []
+    tls:
+      caCert: ""
+      cert: ""
+      key: ""
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+postgres:
+  # Set to false to use an external PostgreSQL instance.
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: pulsar
+    # password is stored in a Secret; provide it here or via existingSecret.
+    password: pulsar
+    database: pulsar
+    # Supply an existing Secret that has key 'postgres-password'.
+    existingSecret: ""
+    secretKey: "postgres-password"
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+    accessMode: ReadWriteOnce
+  resources: {}
+  # Used when postgres.enabled=false — full DSN including password.
+  external:
+    dsn: ""
+    # Supply an existing Secret with the full DSN.
+    existingSecret: ""
+    existingSecretKey: "postgres-dsn"
+
+# ── Agent — Compute ───────────────────────────────────────────────────────────
+# Runs as a privileged DaemonSet on nodes labelled pulsar.io/pillar=compute.
+agentCompute:
+  enabled: true
+  hypervisorDrivers:
+    - kvm
+  imageCacheDir: "/var/lib/pulsar/images"
+  instanceDir: "/var/lib/pulsar/instances"
+  # domainType: "kvm" for hardware acceleration, "qemu" for software emulation.
+  domainType: "kvm"
+  emulator: "/usr/bin/qemu-system-x86_64"
+  libvirtSocket: "/var/run/libvirt/libvirt-sock"
+  # Schedule only on nodes with this label.
+  nodeSelector:
+    pulsar.io/pillar: compute
+  tolerations: []
+  resources: {}
+  podAnnotations: {}
+
+# ── Agent — Network ───────────────────────────────────────────────────────────
+# Runs with hostNetwork on nodes labelled pulsar.io/pillar=network.
+agentNetwork:
+  enabled: true
+  externalInterface: "eth0"
+  overlayInterface: "eth0"
+  vxlanPort: 4789
+  ovnNBAddr: "unix:/var/run/ovn/ovnnb_db.sock"
+  ovsBridge: "br-int"
+  physnetName: "physnet1"
+  # Leave empty to use the node hostname reported at OVN chassis registration.
+  ovnChassisName: ""
+  nodeSelector:
+    pulsar.io/pillar: network
+  tolerations: []
+  resources: {}
+  podAnnotations: {}
+
+# ── Agent — Storage ───────────────────────────────────────────────────────────
+# Runs with hostNetwork + privileged on nodes labelled pulsar.io/pillar=storage.
+agentStorage:
+  enabled: true
+  # nodeIP: IP advertised to iSCSI initiators. Leave empty to auto-detect.
+  nodeIP: ""
+  lvm:
+    volumeGroup: "pulsar-vg"
+    thinPool: "pulsar-pool"
+  nodeSelector:
+    pulsar.io/pillar: storage
+  tolerations: []
+  resources: {}
+  podAnnotations: {}
+
+# ── Infrastructure DaemonSets ─────────────────────────────────────────────────
+# When enabled, these DaemonSets containerize the host-side daemons (libvirtd,
+# OVN/OVS, tgtd) so that no packages need to be installed on the Kubernetes
+# nodes. Only the matching kernel modules are required in the host kernel
+# (standard on Ubuntu 22.04+ and most modern distributions).
+#
+# Ordering on a node:
+#   infra-compute  →  agent-compute   (libvirt socket must exist first)
+#   infra-network  →  agent-network   (OVS/OVN sockets must exist first)
+#   infra-storage  →  agent-storage   (tgtd must be running first)
+#
+# Build the infra images:
+#   docker build -t <reg>/pulsar-infra-compute:<tag> -f deploy/docker/Dockerfile.infra-compute .
+#   docker build -t <reg>/pulsar-infra-network:<tag> -f deploy/docker/Dockerfile.infra-network .
+#   docker build -t <reg>/pulsar-infra-storage:<tag> -f deploy/docker/Dockerfile.infra-storage .
+
+# ── Infrastructure — Compute (libvirtd + iscsid) ──────────────────────────────
+infraCompute:
+  # Set to true to run libvirtd and iscsid as a DaemonSet instead of installing
+  # them on the host. Requires the kvm and iscsi_tcp kernel modules.
+  enabled: false
+  image:
+    repository: pulsar-infra-compute
+    tag: latest
+    pullPolicy: IfNotPresent
+  nodeSelector:
+    pulsar.io/pillar: compute
+  tolerations: []
+  resources: {}
+
+# ── Infrastructure — Network (OVS + OVN) ─────────────────────────────────────
+infraNetwork:
+  # Set to true to run OVS and OVN as a DaemonSet instead of installing them
+  # on the host. Requires the openvswitch kernel module.
+  enabled: false
+  image:
+    repository: pulsar-infra-network
+    tag: latest
+    pullPolicy: IfNotPresent
+  # Set to true on the node(s) that should host the OVN NB/SB databases and
+  # northd. In a single-node or dev cluster enable for all nodes. In production
+  # run a dedicated OVN central node and point ovnRemote at it via TCP.
+  ovnNorthdEnabled: false
+  # OVN SB database address for ovn-controller to connect to.
+  # Defaults to the local unix socket (appropriate when ovnNorthdEnabled=true).
+  # Set to "tcp:<central-ip>:6642" when using an external OVN central.
+  ovnRemote: ""
+  # Overlay/tunnel IP used for Geneve/VXLAN encapsulation.
+  # Leave empty to auto-detect from the node's primary route.
+  ovnEncapIP: ""
+  # Name of the OVS bridge that carries external/provider traffic.
+  ovnProviderBridge: "br-ex"
+  # Physical NIC to patch into ovnProviderBridge (e.g. "eth1").
+  # Leave empty to skip NIC attachment (configure manually or via bond).
+  ovnProviderIface: ""
+  nodeSelector:
+    pulsar.io/pillar: network
+  tolerations: []
+  resources: {}
+
+# ── Infrastructure — Storage (tgtd) ──────────────────────────────────────────
+infraStorage:
+  # Set to true to run tgtd as a DaemonSet instead of installing tgt on the host.
+  # Requires the dm_thin_pool and iscsi_tcp kernel modules.
+  # The LVM volume group and thin pool must still be created on the host block
+  # device before deploying (one-time step — see NODE-SETUP.md section 5).
+  enabled: false
+  image:
+    repository: pulsar-infra-storage
+    tag: latest
+    pullPolicy: IfNotPresent
+  nodeSelector:
+    pulsar.io/pillar: storage
+  tolerations: []
+  resources: {}
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level: info
+  format: json
+
+# ── Telemetry ─────────────────────────────────────────────────────────────────
+telemetry:
+  prometheusListen: ":9091"
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    labels: {}
+    interval: "30s"

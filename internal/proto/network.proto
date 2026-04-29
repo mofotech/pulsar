@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package pulsar.network.v1;
+
+option go_package = "github.com/agomez/pulsar/gen/proto/network;networkpb";
+
+// Task payloads for network operations dispatched to network agents.
+
+message CreateNetworkTask {
+  string id       = 1;
+  string name     = 2;
+  string type     = 3; // "flat" | "vlan" | "vxlan"
+  int32  vni      = 4; // VXLAN Network Identifier (vxlan only)
+  int32  vlan_id  = 5; // VLAN tag (vlan only)
+  int32  mtu      = 6;
+  bool   external = 7;
+}
+
+message DeleteNetworkTask {
+  string id = 1;
+}
+
+message CreatePortTask {
+  string id         = 1;
+  string network_id = 2;
+  string mac_addr   = 3;
+  string fixed_ip   = 4;
+  int32  vni        = 5;
+  repeated SGRule security_group_rules = 6;
+}
+
+message DeletePortTask {
+  string id = 1;
+}
+
+message UpdatePortSecurityGroupsTask {
+  string          port_id = 1;
+  repeated SGRule rules   = 2;
+}
+
+message SGRule {
+  string direction         = 1; // "ingress" | "egress"
+  string protocol          = 2; // "tcp" | "udp" | "icmp" | "icmp6" | ""
+  int32  port_min          = 3;
+  int32  port_max          = 4;
+  string remote_cidr       = 5; // mutually exclusive with remote_sg_pg_name
+  string ethertype         = 6; // "IPv4" | "IPv6"
+  string remote_sg_pg_name = 7; // OVN port group name of the remote security group
+}
+
+message AssociateFloatingIPTask {
+  string floating_ip  = 1;
+  string fixed_ip     = 2;
+  string external_iface = 3;
+}
+
+message DisassociateFloatingIPTask {
+  string floating_ip = 1;
+}
+
+message CreateRouterInterfaceTask {
+  string router_id  = 1;
+  string subnet_id  = 2;
+  string gateway_ip = 3;
+  string cidr       = 4;
+}
+
+message DeleteRouterInterfaceTask {
+  string router_id  = 1;
+  string subnet_id  = 2;
+}

@@ -1,0 +1,42 @@
+---
+# Configure libvirt / QEMU for hosting VMs.
+
+- name: Ensure libvirtd is running
+  ansible.builtin.service:
+    name: libvirtd
+    state: started
+    enabled: true
+
+- name: Add ubuntu user to libvirt and kvm groups
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: libvirt,kvm
+    append: true
+
+- name: Check KVM hardware support
+  ansible.builtin.command:
+    cmd: kvm-ok
+  register: kvm_ok_result
+  changed_when: false
+  failed_when: false
+
+- name: Warn if KVM acceleration unavailable
+  ansible.builtin.debug:
+    msg: >
+      WARNING: KVM hardware acceleration is not available on this node.
+      VMs will run under software emulation (QEMU). Performance will be poor.
+      Set compute_domain_type: qemu in host_vars to suppress this warning.
+  when: kvm_ok_result.rc != 0 and compute_domain_type == "kvm"
+
+- name: Create Pulsar VM data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /var/lib/pulsar
+    - "{{ compute_image_cache_dir }}"
+    - "{{ compute_instance_dir }}"
+    - /var/lib/pulsar/image-store

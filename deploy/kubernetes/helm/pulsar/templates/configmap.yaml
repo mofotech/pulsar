@@ -1,0 +1,75 @@
+# pulsar.yaml mounted at /etc/pulsar/pulsar.yaml inside every pod.
+# Sensitive values (JWT secret, Postgres DSN) are injected via environment
+# variables so they never appear in this ConfigMap:
+#   PULSAR_CONTROLLER_JWT_SECRET  → controller.jwt.secret
+#   PULSAR_CONTROLLER_POSTGRES_DSN → controller.postgres.dsn
+#
+# Per-agent identity (node_id) is injected via the Downward API:
+#   PULSAR_AGENT_NODE_ID → agent.node_id
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pulsar.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+data:
+  pulsar.yaml: |
+    controller:
+      listen_http: {{ .Values.controller.listenHTTP | quote }}
+      listen_grpc: {{ .Values.controller.listenGRPC | quote }}
+      etcd:
+        endpoints:
+          {{- include "pulsar.etcdEndpoints" . | nindent 10 }}
+      jwt:
+        # secret injected via PULSAR_CONTROLLER_JWT_SECRET env var
+        expiry: {{ .Values.jwt.expiry | quote }}
+      # postgres.dsn injected via PULSAR_CONTROLLER_POSTGRES_DSN env var
+      image_store_dir: {{ .Values.controller.imageStoreDir | quote }}
+      public_url: {{ .Values.controller.publicURL | quote }}
+      {{- if .Values.controller.oidcBaseURL }}
+      oidc_base_url: {{ .Values.controller.oidcBaseURL | quote }}
+      {{- end }}
+      {{- if .Values.controller.consoleVNCHost }}
+      console_vnc_host: {{ .Values.controller.consoleVNCHost | quote }}
+      {{- end }}
+
+    agent:
+      # controller_grpc points at the controller's K8s ClusterIP Service.
+      # agent-network and agent-storage use hostNetwork but CoreDNS still
+      # resolves cluster Service names via /etc/resolv.conf.
+      controller_grpc: {{ include "pulsar.controllerGRPC" . | quote }}
+      # node_id injected per-pod via PULSAR_AGENT_NODE_ID (Downward API).
+      compute:
+        hypervisor_drivers:
+          {{- range .Values.agentCompute.hypervisorDrivers }}
+          - {{ . }}
+          {{- end }}
+        image_cache_dir: {{ .Values.agentCompute.imageCacheDir | quote }}
+        instance_dir:    {{ .Values.agentCompute.instanceDir | quote }}
+        domain_type:     {{ .Values.agentCompute.domainType | quote }}
+        emulator:        {{ .Values.agentCompute.emulator | quote }}
+        libvirt_socket:  {{ .Values.agentCompute.libvirtSocket | quote }}
+      network:
+        external_interface: {{ .Values.agentNetwork.externalInterface | quote }}
+        overlay_interface:  {{ .Values.agentNetwork.overlayInterface | quote }}
+        vxlan_port: {{ .Values.agentNetwork.vxlanPort }}
+        ovn_nb_addr: {{ .Values.agentNetwork.ovnNBAddr | quote }}
+        ovs_bridge:  {{ .Values.agentNetwork.ovsBridge | quote }}
+        physnet_name: {{ .Values.agentNetwork.physnetName | quote }}
+        {{- if .Values.agentNetwork.ovnChassisName }}
+        ovn_chassis_name: {{ .Values.agentNetwork.ovnChassisName | quote }}
+        {{- end }}
+      storage:
+        node_ip: {{ .Values.agentStorage.nodeIP | quote }}
+        backends:
+          lvm:
+            volume_group: {{ .Values.agentStorage.lvm.volumeGroup | quote }}
+            thin_pool:    {{ .Values.agentStorage.lvm.thinPool | quote }}
+
+    logging:
+      level:  {{ .Values.logging.level | quote }}
+      format: {{ .Values.logging.format | quote }}
+
+    telemetry:
+      prometheus_listen: {{ .Values.telemetry.prometheusListen | quote }}

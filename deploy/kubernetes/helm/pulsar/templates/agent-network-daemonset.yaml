@@ -1,0 +1,86 @@
+{{- if .Values.agentNetwork.enabled -}}
+# Runs on every node labelled pulsar.io/pillar=network.
+# Uses hostNetwork to manage OVS/OVN bridges and iptables on the host stack.
+# CoreDNS is still reachable with hostNetwork via /etc/resolv.conf.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "pulsar.fullname" . }}-agent-network
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-network
+spec:
+  selector:
+    matchLabels:
+      {{- include "pulsar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent-network
+  template:
+    metadata:
+      {{- with .Values.agentNetwork.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "pulsar.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent-network
+    spec:
+      {{- include "pulsar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "pulsar.serviceAccountName" . }}
+      # hostNetwork allows direct management of host bridges, VXLANs, iptables.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: agent-network
+          image: {{ include "pulsar.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["agent", "--pillar=network", "--config", "/etc/pulsar/pulsar.yaml"]
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+                - SYS_MODULE
+          env:
+            - name: PULSAR_AGENT_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pulsar
+              readOnly: true
+            # OVN NB socket (host-installed OVN).
+            - name: ovn-run
+              mountPath: /var/run/ovn
+            # OVS socket for ovs-vsctl.
+            - name: ovs-run
+              mountPath: /var/run/openvswitch
+          {{- with .Values.agentNetwork.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "pulsar.fullname" . }}-config
+        - name: ovn-run
+          hostPath:
+            path: /var/run/ovn
+            type: DirectoryOrCreate
+        - name: ovs-run
+          hostPath:
+            path: /var/run/openvswitch
+            type: DirectoryOrCreate
+      {{- with .Values.agentNetwork.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentNetwork.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+{{- end }}

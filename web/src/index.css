@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark-first design tokens */
+    --background: 224 18% 8%;
+    --foreground: 220 15% 92%;
+
+    --card: 224 16% 11%;
+    --card-foreground: 220 15% 92%;
+
+    --popover: 224 16% 13%;
+    --popover-foreground: 220 15% 92%;
+
+    --primary: 250 84% 66%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 224 14% 16%;
+    --secondary-foreground: 220 10% 70%;
+
+    --muted: 224 14% 16%;
+    --muted-foreground: 220 10% 48%;
+
+    --accent: 250 60% 22%;
+    --accent-foreground: 250 84% 82%;
+
+    --destructive: 0 72% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 224 14% 18%;
+    --input: 224 14% 18%;
+    --ring: 250 84% 66%;
+    --radius: 0.6rem;
+
+    /* Sidebar */
+    --sidebar-bg: 224 20% 7%;
+    --sidebar-border: 224 14% 13%;
+
+    /* Accent glow */
+    --glow: 250 84% 66%;
+  }
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-feature-settings: 'rlig' 1, 'calt' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Selection */
+::selection {
+  background: hsl(var(--primary) / 0.3);
+  color: hsl(var(--foreground));
+}
+
+/* Noise/grain texture overlay for the login page */
+.noise-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+/* Subtle animated gradient orb */
+@keyframes orb-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -20px) scale(1.04); }
+  66% { transform: translate(-20px, 15px) scale(0.97); }
+}
+.orb {
+  animation: orb-drift 18s ease-in-out infinite;
+}

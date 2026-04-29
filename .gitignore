@@ -1,0 +1,17 @@
+# Compiled binaries
+bin/pulsar
+bin/pulsarctl
+bin/pulsarctl-linux
+
+# Web build artifacts
+web/dist/
+web/node_modules/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+
+# Generated TypeScript build info (can be regenerated)
+web/tsconfig.app.tsbuildinfo
+web/tsconfig.node.tsbuildinfo

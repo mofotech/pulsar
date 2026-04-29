@@ -1,0 +1,99 @@
+{{- if .Values.infraStorage.enabled -}}
+# Runs tgtd (iSCSI target daemon) on every storage node as a container,
+# removing the need to install tgt on the host.
+#
+# dm_thin_pool is loaded by the init container; the LVM volume group and
+# thin pool must be pre-created on the host block device before deploying.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "pulsar.fullname" . }}-infra-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: infra-storage
+spec:
+  selector:
+    matchLabels:
+      {{- include "pulsar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: infra-storage
+  template:
+    metadata:
+      labels:
+        {{- include "pulsar.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: infra-storage
+    spec:
+      {{- include "pulsar.imagePullSecrets" . | nindent 6 }}
+      # hostNetwork so tgtd binds on the real host IP:3260.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+        - name: load-modules
+          image: alpine
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - modprobe dm_thin_pool && modprobe iscsi_tcp
+          volumeMounts:
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+      containers:
+        - name: infra-storage
+          image: {{ printf "%s:%s" .Values.infraStorage.image.repository .Values.infraStorage.image.tag }}
+          imagePullPolicy: {{ .Values.infraStorage.image.pullPolicy }}
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            # LVM: full /dev access for device-mapper and block devices.
+            - name: host-dev
+              mountPath: /dev
+            # LVM locking directory.
+            - name: host-lvm-lock
+              mountPath: /run/lock/lvm
+            # LVM config (lvm.conf, filters).
+            - name: host-lvm-config
+              mountPath: /etc/lvm
+            # tgtd creates its admin socket here.
+            - name: host-tgtd
+              mountPath: /run/tgtd
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+          {{- with .Values.infraStorage.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-lvm-lock
+          hostPath:
+            path: /run/lock/lvm
+            type: DirectoryOrCreate
+        - name: host-lvm-config
+          hostPath:
+            path: /etc/lvm
+            type: DirectoryOrCreate
+        - name: host-tgtd
+          hostPath:
+            path: /run/tgtd
+            type: DirectoryOrCreate
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+      {{- with .Values.infraStorage.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.infraStorage.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+{{- end }}

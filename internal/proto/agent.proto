@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package pulsar.agent.v1;
+
+option go_package = "github.com/agomez/pulsar/gen/proto/agent;agentpb";
+
+// The controller implements AgentGateway; agents connect to it.
+service AgentGateway {
+  // Bidirectional stream: agent sends heartbeats/events, controller sends tasks.
+  rpc Connect(stream AgentMessage) returns (stream ControllerMessage);
+}
+
+// ─── Agent → Controller ──────────────────────────────────────────────────────
+
+message AgentMessage {
+  oneof payload {
+    Heartbeat     heartbeat      = 1;
+    TaskResult    task_result    = 2;
+    ResourceEvent resource_event = 3;
+  }
+}
+
+message Heartbeat {
+  string             agent_id       = 1;
+  string             pillar         = 2; // "compute" | "network" | "storage"
+  int64              timestamp_unix = 3;
+  AgentCapabilities  capabilities   = 4;
+  ResourceUsage      resources      = 5;
+}
+
+message AgentCapabilities {
+  repeated string hypervisor_types    = 1; // ["kvm", "lxd", "lxc", "containerd"]
+  repeated string network_backends    = 2; // ["linux-bridge", "vxlan"]
+  repeated string storage_backends    = 3; // ["lvm", "ceph", "nfs"]
+  int32           max_instances       = 4;
+  bool            supports_live_migration = 5;
+}
+
+message ResourceUsage {
+  int32 vcpus_total    = 1;
+  int32 vcpus_used     = 2;
+  int64 ram_mb_total   = 3;
+  int64 ram_mb_used    = 4;
+  int64 disk_gb_total  = 5;
+  int64 disk_gb_used   = 6;
+}
+
+message TaskResult {
+  string task_id       = 1;
+  bool   success       = 2;
+  string error_message = 3;
+  bytes  result        = 4; // JSON-encoded task-specific result
+}
+
+message ResourceEvent {
+  string resource_type  = 1; // "instance" | "volume" | "port"
+  string resource_id    = 2;
+  string event_type     = 3; // "state_change" | "error" | "deleted"
+  string new_state      = 4;
+  int64  timestamp_unix = 5;
+}
+
+// ─── Controller → Agent ──────────────────────────────────────────────────────
+
+message ControllerMessage {
+  oneof payload {
+    TaskAssignment task_assignment = 1;
+    ConfigUpdate   config_update   = 2;
+    DrainRequest   drain_request   = 3;
+  }
+}
+
+message TaskAssignment {
+  string task_id         = 1;
+  string task_type       = 2; // e.g. "instance.create", "volume.attach"
+  bytes  payload         = 3; // JSON-encoded task-specific args
+  int32  timeout_seconds = 4;
+}
+
+message ConfigUpdate {
+  map<string, string> values = 1;
+}
+
+message DrainRequest {
+  string reason          = 1;
+  int32  grace_seconds   = 2;
+}

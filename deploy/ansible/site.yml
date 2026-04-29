@@ -1,0 +1,14 @@
+---
+# Top-level playbook — provisions compute nodes to join the Pulsar cluster.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml site.yml
+#   ansible-playbook -i inventory/hosts.yml site.yml --limit compute2
+#   ansible-playbook -i inventory/hosts.yml site.yml --tags ovs_ovn
+#
+- name: Provision Pulsar compute nodes
+  hosts: compute_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - pulsar_compute_node

@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+# Infrastructure image for Pulsar compute nodes.
+# Provides: libvirtd, QEMU/KVM, open-iscsi
+#
+# Build:
+#   docker build -t <registry>/pulsar-infra-compute:<tag> \
+#     -f deploy/docker/Dockerfile.infra-compute .
+#
+# The Dockerfile context must be the repository root so the entrypoint
+# script can be copied from deploy/docker/infra/.
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libvirt-daemon-system \
+        libvirt-clients \
+        qemu-kvm \
+        qemu-utils \
+        open-iscsi \
+        genisoimage \
+        iproute2 \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pre-create directories so they are owned by root inside the image;
+# the actual files/sockets live on the hostPath mounts at runtime.
+RUN mkdir -p /var/run/libvirt /var/lib/libvirt/qemu /etc/iscsi
+
+COPY deploy/docker/infra/compute-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

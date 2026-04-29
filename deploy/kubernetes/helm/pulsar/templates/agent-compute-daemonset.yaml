@@ -1,0 +1,125 @@
+{{- if .Values.agentCompute.enabled -}}
+# Runs on every node labelled pulsar.io/pillar=compute.
+# Requires privileged access to communicate with host libvirtd and KVM.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "pulsar.fullname" . }}-agent-compute
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-compute
+spec:
+  selector:
+    matchLabels:
+      {{- include "pulsar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent-compute
+  template:
+    metadata:
+      {{- with .Values.agentCompute.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "pulsar.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent-compute
+    spec:
+      {{- include "pulsar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "pulsar.serviceAccountName" . }}
+      hostPID: false
+      hostNetwork: false
+      containers:
+        - name: agent-compute
+          image: {{ include "pulsar.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["agent", "--pillar=compute", "--config", "/etc/pulsar/pulsar.yaml"]
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          env:
+            # Inject the node's hostname as the agent node_id via Downward API.
+            - name: PULSAR_AGENT_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pulsar
+              readOnly: true
+            # libvirt socket — agent communicates with host libvirtd directly.
+            - name: libvirt-sock
+              mountPath: {{ .Values.agentCompute.libvirtSocket }}
+            # Image and instance dirs MUST use the same host path so libvirtd
+            # can resolve disk image paths when creating domains.
+            - name: pulsar-images
+              mountPath: {{ .Values.agentCompute.imageCacheDir }}
+            - name: pulsar-instances
+              mountPath: {{ .Values.agentCompute.instanceDir }}
+            # iSCSI: iscsiadm and udevadm need access to host /dev, /sys, udev.
+            - name: host-dev
+              mountPath: /dev
+            - name: host-sys
+              mountPath: /sys
+            - name: host-udev
+              mountPath: /run/udev
+            - name: host-modules
+              mountPath: /lib/modules
+              readOnly: true
+            # iscsiadm runs via nsenter into the host network namespace.
+            - name: host-proc-ns
+              mountPath: /host-proc-ns
+              readOnly: true
+            - name: host-iscsi-config
+              mountPath: /etc/iscsi
+          {{- with .Values.agentCompute.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "pulsar.fullname" . }}-config
+        - name: libvirt-sock
+          hostPath:
+            path: {{ .Values.agentCompute.libvirtSocket }}
+            type: Socket
+        - name: pulsar-images
+          hostPath:
+            path: {{ .Values.agentCompute.imageCacheDir }}
+            type: DirectoryOrCreate
+        - name: pulsar-instances
+          hostPath:
+            path: {{ .Values.agentCompute.instanceDir }}
+            type: DirectoryOrCreate
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-udev
+          hostPath:
+            path: /run/udev
+        - name: host-modules
+          hostPath:
+            path: /lib/modules
+        - name: host-proc-ns
+          hostPath:
+            path: /proc/1/ns
+        - name: host-iscsi-config
+          hostPath:
+            path: /etc/iscsi
+            type: DirectoryOrCreate
+      # /dev/kvm device — required for hardware-accelerated KVM domains.
+      {{- /* devicePlugins are not needed here; privileged + hostPath covers it */}}
+      {{- with .Values.agentCompute.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentCompute.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+{{- end }}

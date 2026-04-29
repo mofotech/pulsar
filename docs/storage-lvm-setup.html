@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulsar IaaS — LVM Storage Host Setup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 11pt;
+    line-height: 1.55;
+    color: #1a1a2e;
+    background: #fff;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 48px;
+  }
+
+  h1 { font-size: 28pt; font-weight: 800; letter-spacing: -0.5px; color: #0f172a; }
+  h2 { font-size: 14pt; font-weight: 700; color: #1e293b; margin-top: 36px; margin-bottom: 12px; }
+  h3 { font-size: 10.5pt; font-weight: 700; color: #334155; margin-top: 20px; margin-bottom: 8px; }
+  p  { margin-bottom: 10px; color: #334155; }
+  ul, ol { padding-left: 20px; margin-bottom: 12px; color: #334155; }
+  li { margin-bottom: 4px; }
+
+  .doc-header {
+    border-bottom: 3px solid #3b82f6;
+    padding-bottom: 22px;
+    margin-bottom: 34px;
+  }
+  .doc-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 10px;
+    font-size: 9.5pt;
+    color: #64748b;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    vertical-align: middle;
+  }
+  .badge-done    { background: #dcfce7; color: #166534; }
+  .badge-warn    { background: #fef9c3; color: #854d0e; }
+  .badge-note    { background: #e0e7ff; color: #3730a3; }
+
+  /* ── Code blocks ── */
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-family: 'SF Mono', 'Fira Mono', 'Consolas', monospace;
+    font-size: 8.5pt;
+    line-height: 1.7;
+    overflow-x: auto;
+    margin: 12px 0 18px;
+  }
+  code {
+    font-family: 'SF Mono', 'Fira Mono', 'Consolas', monospace;
+    font-size: 8.5pt;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+
+  /* ── Comment color in pre blocks ── */
+  .cm  { color: #64748b; }  /* comment */
+  .kw  { color: #93c5fd; }  /* keyword / flag */
+  .va  { color: #fbbf24; }  /* variable / path */
+  .st  { color: #86efac; }  /* string / value */
+  .pr  { color: #f9a8d4; }  /* prompt */
+
+  /* ── Section ── */
+  .section { margin-bottom: 36px; }
+  .section-title {
+    font-size: 10pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #94a3b8;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 6px;
+    margin-bottom: 18px;
+    margin-top: 36px;
+  }
+
+  /* ── Callout boxes ── */
+  .callout {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-size: 9.5pt;
+  }
+  .callout-warn {
+    background: #fefce8;
+    border-left: 4px solid #eab308;
+    color: #713f12;
+  }
+  .callout-info {
+    background: #eff6ff;
+    border-left: 4px solid #3b82f6;
+    color: #1e3a5f;
+  }
+  .callout-ok {
+    background: #f0fdf4;
+    border-left: 4px solid #22c55e;
+    color: #14532d;
+  }
+  .callout strong { font-weight: 700; }
+
+  /* ── Step list ── */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 0 14px;
+    margin-bottom: 24px;
+  }
+  .steps li::before {
+    content: counter(step);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    background: #3b82f6;
+    color: #fff;
+    font-weight: 700;
+    font-size: 9pt;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .steps li > div { padding-top: 2px; }
+
+  /* ── Table ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.5pt;
+    margin-bottom: 20px;
+  }
+  th {
+    background: #f1f5f9;
+    font-weight: 700;
+    text-align: left;
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+  }
+  td {
+    padding: 7px 12px;
+    border: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #fafafa; }
+
+  /* ── Footer ── */
+  .doc-footer {
+    margin-top: 48px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 14px;
+    font-size: 8.5pt;
+    color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  @media print {
+    body { padding: 0; max-width: 100%; }
+    pre  { break-inside: avoid; }
+    h2   { break-after: avoid; }
+    @page { margin: 18mm 20mm; size: A4; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  HEADER                                                               -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="doc-header">
+  <h1>Pulsar IaaS</h1>
+  <p style="font-size:13pt;color:#475569;margin-top:6px;">LVM Storage Host Setup Guide</p>
+  <div class="doc-meta">
+    <span>Date: April 2026</span>
+    <span>Applies to: Pulsar v0.5+</span>
+    <span>Author: Engineering</span>
+    <span>
+      <span class="badge badge-note">Storage Pillar</span>
+      <span class="badge badge-done" style="margin-left:4px">LVM + iSCSI</span>
+    </span>
+  </div>
+</div>
+
+<p>
+  This guide walks through preparing a host to run the Pulsar <strong>storage agent</strong> with
+  LVM thin-pool volumes exported over iSCSI, and configuring the <strong>compute agent</strong>
+  host so it can discover and attach those volumes to running instances.
+</p>
+
+<div class="callout callout-info">
+  <strong>Architecture recap:</strong> The storage agent owns the disk — it creates LVM logical
+  volumes and exports them as iSCSI targets via <code>tgtd</code>. The compute agent
+  (on each hypervisor host) runs <code>iscsiadm</code> to connect to those targets and
+  hot-plugs the resulting block device into a libvirt domain with <code>virsh attach-disk</code>.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PREREQUISITES                                                        -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Prerequisites</div>
+
+<table>
+  <thead>
+    <tr><th>Requirement</th><th>Storage host</th><th>Compute host(s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>OS</td><td colspan="2">Ubuntu 22.04 LTS or 24.04 LTS (tested)</td></tr>
+    <tr><td>Extra disk</td><td>At least one unformatted block device (e.g. <code>/dev/sdb</code>)</td><td>Not required</td></tr>
+    <tr><td>Packages</td><td><code>lvm2</code>, <code>tgt</code></td><td><code>open-iscsi</code></td></tr>
+    <tr><td>Network</td><td colspan="2">Storage and compute hosts must be reachable on TCP 3260 (iSCSI)</td></tr>
+    <tr><td>Pulsar agent</td><td><code>--pillar=storage</code></td><td><code>--pillar=compute</code></td></tr>
+  </tbody>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PART 1 — STORAGE HOST                                                -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Part 1 — Storage Host Setup</div>
+
+<h2>1.1 Identify the storage disk</h2>
+<p>
+  Find the unformatted disk that will back the LVM volume group.
+  Do <strong>not</strong> mount or format it — LVM manages it directly.
+</p>
+<pre><code><span class="cm"># List all block devices and their mount/partition status</span>
+lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL
+
+<span class="cm"># Example output — /dev/sdb is unpartitioned and unformatted:</span>
+<span class="cm"># sda    40G  disk                               (OS disk)</span>
+<span class="cm"># sdb    50G  disk                               (storage disk — use this)</span></code></pre>
+
+<div class="callout callout-warn">
+  <strong>Warning:</strong> The disk you select will be completely owned by LVM. Any existing
+  data will be destroyed. Triple-check you are targeting the correct device before running
+  <code>pvcreate</code>.
+</div>
+
+<h2>1.2 Install LVM2 and tgt</h2>
+<pre><code>apt-get update
+apt-get install -y lvm2 tgt
+
+<span class="cm"># Enable tgtd to start on boot and start it now</span>
+systemctl enable --now tgtd</code></pre>
+
+<h2>1.3 Create the LVM Physical Volume</h2>
+<pre><code><span class="cm"># Replace /dev/sdb with your actual storage disk</span>
+pvcreate /dev/sdb
+
+<span class="cm"># Verify</span>
+pvdisplay /dev/sdb</code></pre>
+
+<h2>1.4 Create the Volume Group</h2>
+<p>
+  Pulsar's default config expects a VG named <code>pulsar-vg</code>.
+  This name is configurable in <code>pulsar.docker.yaml</code> under
+  <code>agent.storage.backends.lvm.volume_group</code>.
+</p>
+<pre><code>vgcreate pulsar-vg /dev/sdb
+
+<span class="cm"># Verify</span>
+vgdisplay pulsar-vg</code></pre>
+
+<h2>1.5 Create the Thin Pool</h2>
+<p>
+  A thin pool allows over-provisioning: you can allocate more virtual storage than
+  physically exists, with blocks consumed only as data is written.
+  Pulsar's default thin pool name is <code>pulsar-pool</code>.
+</p>
+<pre><code><span class="cm"># Use 95% of the VG for the pool (leave ~5% for LVM metadata overhead)</span>
+lvcreate -l 95%VG --thinpool pulsar-pool pulsar-vg
+
+<span class="cm"># Verify the pool was created</span>
+lvdisplay pulsar-vg/pulsar-pool
+
+<span class="cm"># Confirm thin pool data and metadata LVs are present</span>
+lvs -a pulsar-vg</code></pre>
+
+<div class="callout callout-ok">
+  <strong>Expected output:</strong> You should see two internal LVs:
+  <code>pulsar-pool_tdata</code> (the data area) and
+  <code>pulsar-pool_tmeta</code> (the metadata area), plus the
+  <code>pulsar-pool</code> pool itself.
+</div>
+
+<h2>1.6 Verify tgtd is running</h2>
+<pre><code>systemctl status tgtd
+
+<span class="cm"># Should show: active (running)</span>
+<span class="cm"># tgtd binds to 0.0.0.0:3260 by default</span>
+
+<span class="cm"># Confirm the port is open</span>
+ss -tlnp | grep 3260</code></pre>
+
+<h2>1.7 Configure the Pulsar storage agent</h2>
+<p>
+  Edit <code>deploy/docker/pulsar.docker.yaml</code> (or your agent's config file)
+  and set the LVM details and the IP that iSCSI initiators should connect to:
+</p>
+<pre><code>agent:
+  storage:
+    <span class="cm"># Set to the IP address of this storage host on the network that</span>
+    <span class="cm"># compute nodes use to reach it. Auto-detected if left empty.</span>
+    node_ip: "<span class="va">10.11.3.190</span>"
+    backends:
+      lvm:
+        volume_group: "<span class="st">pulsar-vg</span>"
+        thin_pool:    "<span class="st">pulsar-pool</span>"</code></pre>
+
+<div class="callout callout-info">
+  <strong>node_ip:</strong> This is the IP address that will be embedded in iSCSI target
+  portals. Compute agents must be able to reach TCP port 3260 on this address.
+  In a Docker Compose deployment with <code>network_mode: host</code>, this should be
+  the host's primary network interface IP (e.g. <code>10.11.3.190</code>), not
+  <code>127.0.0.1</code>.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PART 2 — COMPUTE HOST                                                -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Part 2 — Compute Host Setup</div>
+
+<h2>2.1 Install open-iscsi</h2>
+<pre><code>apt-get install -y open-iscsi
+
+<span class="cm"># Enable the iSCSI initiator service</span>
+systemctl enable --now open-iscsi iscsid</code></pre>
+
+<h2>2.2 Note the initiator IQN</h2>
+<p>
+  Each host has a unique initiator name used to identify it to iSCSI targets.
+  Pulsar does not restrict by initiator IQN (all initiators are allowed), but
+  it is useful for auditing:
+</p>
+<pre><code>cat /etc/iscsi/initiatorname.iscsi
+<span class="cm"># InitiatorName=iqn.1993-08.org.debian:01:xxxxxxxx</span></code></pre>
+
+<h2>2.3 Verify discovery works (optional smoke test)</h2>
+<p>
+  Before starting the Pulsar agents, confirm the compute host can reach the
+  storage host's iSCSI port:
+</p>
+<pre><code><span class="cm"># Replace 10.11.3.190 with your storage host IP</span>
+iscsiadm -m discovery -t sendtargets -p 10.11.3.190
+
+<span class="cm"># If tgtd is running with no targets yet, this will succeed with no output.</span>
+<span class="cm"># If you see "connection refused", check firewall rules (port 3260/tcp).</span></code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PART 3 — FIREWALL                                                    -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Part 3 — Firewall Rules</div>
+
+<p>
+  iSCSI requires TCP port 3260 to be open between the compute hosts and the
+  storage host. If <code>ufw</code> is active:
+</p>
+<pre><code><span class="cm"># On the storage host — allow iSCSI from compute nodes</span>
+ufw allow from <span class="va">10.11.3.0/24</span> to any port 3260 proto tcp
+
+<span class="cm"># Or allow from a specific compute host only</span>
+ufw allow from <span class="va">10.11.3.190</span> to any port 3260 proto tcp</code></pre>
+
+<p>If using <code>iptables</code> directly:</p>
+<pre><code>iptables -A INPUT -p tcp --dport 3260 -s <span class="va">10.11.3.0/24</span> -j ACCEPT</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PART 4 — DOCKER COMPOSE                                              -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Part 4 — Docker Compose Considerations</div>
+
+<p>
+  The Pulsar Docker Compose stack runs the storage and compute agents as
+  containers on the same host (or across hosts). Key configuration decisions:
+</p>
+
+<h3>Storage agent — host network mode</h3>
+<p>
+  The storage agent uses <code>network_mode: host</code> so that <code>tgtd</code>
+  binds directly to the host's network interface on port 3260. Without this,
+  iSCSI targets would only be reachable inside the Docker bridge network.
+</p>
+<pre><code>agent-storage:
+  network_mode: host
+  environment:
+    - PULSAR_AGENT_CONTROLLER_GRPC=127.0.0.1:9090
+  privileged: true   <span class="cm"># required for LVM ioctls and tgtadm</span></code></pre>
+
+<h3>Compute agent — block device access</h3>
+<p>
+  The compute agent needs access to <code>/dev</code>, <code>/sys</code>, and the
+  udev socket so that <code>iscsiadm</code> and <code>udevadm</code> can operate
+  on newly-attached block devices:
+</p>
+<pre><code>agent-compute:
+  volumes:
+    - /dev:/dev
+    - /sys:/sys
+    - /run/udev:/run/udev
+  cap_add:
+    - SYS_ADMIN   <span class="cm"># iscsiadm netlink and block device operations</span>
+    - SYS_PTRACE  <span class="cm"># libvirt/KVM ioctls</span></code></pre>
+
+<h3>Storage agent on a separate host</h3>
+<p>
+  If the storage agent runs on a dedicated host (not co-located with the controller),
+  point it at the controller's public IP:
+</p>
+<pre><code>environment:
+  - PULSAR_AGENT_CONTROLLER_GRPC=<span class="va">10.11.3.100</span>:9090   <span class="cm"># controller host IP</span>
+  - PULSAR_AGENT_STORAGE_NODE_IP=<span class="va">10.11.3.200</span>        <span class="cm"># this host's storage IP</span></code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  PART 5 — VERIFICATION                                                -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Part 5 — End-to-End Verification</div>
+
+<ol class="steps">
+  <li>
+    <div>
+      <strong>Start the stack</strong>
+      <pre><code>make up</code></pre>
+      Wait for all services to report healthy. Check storage agent logs:
+      <pre><code>docker compose logs -f agent-storage</code></pre>
+      You should see:
+      <pre><code><span class="cm">INFO  storage executor ready  vg=pulsar-vg pool=pulsar-pool</span>
+<span class="cm">INFO  connected to controller  addr=127.0.0.1:9090 pillar=storage</span></code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Create a volume type</strong> (one-time setup)<br>
+      Via the UI (<em>Storage → Volume Types → Create Type</em>) or API:
+      <pre><code>pulsarctl storage volume-type create --name standard-lvm --driver lvm</code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Create a volume</strong>
+      <pre><code>pulsarctl storage volume create --name test-vol --size 5</code></pre>
+      Poll until status is <code>available</code>:
+      <pre><code>pulsarctl storage volume list</code></pre>
+      On the storage host, confirm the LV was created:
+      <pre><code>lvs pulsar-vg
+<span class="cm"># Should show an LV named after the volume UUID</span></code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Attach the volume to an instance</strong>
+      <pre><code>pulsarctl storage volume attach &lt;volume-id&gt; \
+  --instance &lt;instance-id&gt; \
+  --device /dev/vdb</code></pre>
+      While the attach is in progress (status <code>in-use</code>), verify on the
+      storage host that a tgt target was created:
+      <pre><code>tgtadm --lld iscsi --op show --mode target
+<span class="cm"># Should show: iqn.2026-04.io.pulsar:volume.&lt;uuid&gt;</span></code></pre>
+      Inside the instance, the disk should appear:
+      <pre><code>lsblk   <span class="cm"># look for /dev/vdb</span></code></pre>
+    </div>
+  </li>
+  <li>
+    <div>
+      <strong>Detach the volume</strong>
+      <pre><code>pulsarctl storage volume detach &lt;volume-id&gt;</code></pre>
+      Status returns to <code>available</code>. The tgt target is removed and
+      <code>/dev/vdb</code> disappears from the instance.
+    </div>
+  </li>
+</ol>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  TROUBLESHOOTING                                                      -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Troubleshooting</div>
+
+<table>
+  <thead>
+    <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Volume stuck in <code>creating</code></td>
+      <td>Storage agent not connected, or LVM VG/pool not found</td>
+      <td>Check <code>docker compose logs agent-storage</code>. Verify <code>vgdisplay pulsar-vg</code> succeeds inside the container: <code>docker compose exec agent-storage vgdisplay pulsar-vg</code></td>
+    </tr>
+    <tr>
+      <td><code>tgtadm: command not found</code></td>
+      <td><code>tgt</code> package not installed inside container</td>
+      <td>The Pulsar Dockerfile must install <code>tgt</code>. Add <code>RUN apt-get install -y tgt</code> and rebuild: <code>make up</code></td>
+    </tr>
+    <tr>
+      <td>iSCSI discovery returns nothing</td>
+      <td>tgtd not running, wrong <code>node_ip</code>, or firewall blocking 3260</td>
+      <td>Run <code>systemctl status tgtd</code> on the storage host. Verify <code>ss -tlnp | grep 3260</code> shows tgtd listening. Check <code>ufw status</code>.</td>
+    </tr>
+    <tr>
+      <td><code>iscsiadm login failed</code></td>
+      <td>Compute agent can't reach storage host TCP 3260</td>
+      <td>From the compute agent container: <code>nc -zv &lt;storage-ip&gt; 3260</code>. If it fails, add a firewall rule or check <code>node_ip</code> in config.</td>
+    </tr>
+    <tr>
+      <td>Block device doesn't appear after login</td>
+      <td>Kernel iSCSI modules not loaded in compute container</td>
+      <td>On the compute host: <code>modprobe iscsi_tcp</code>. Add to <code>/etc/modules</code> for persistence. The compute container mounts <code>/sys</code> and <code>/dev</code> from the host so host-loaded modules are visible.</td>
+    </tr>
+    <tr>
+      <td><code>virsh attach-disk</code> fails</td>
+      <td>Block device path wrong, or domain not running</td>
+      <td>Verify the device exists: <code>ls -la /dev/disk/by-path/ | grep iscsi</code>. Confirm the instance is active. Check <code>docker compose logs agent-compute</code>.</td>
+    </tr>
+    <tr>
+      <td>Attach succeeds but guest doesn't see the disk</td>
+      <td>Guest needs to rescan or the wrong target dev was used</td>
+      <td>Inside the instance run <code>lsblk</code>. If the device is there but not visible to the app, rescan with <code>echo '- - -' &gt; /sys/class/scsi_host/host0/scan</code>. Verify the <code>device_path</code> matches what was requested.</td>
+    </tr>
+    <tr>
+      <td>LV not cleaned up after volume delete</td>
+      <td>Volume still <code>in-use</code> — detach refused delete</td>
+      <td>Detach first, then delete. If the instance is gone and detach fails, manually: <code>lvremove -fy pulsar-vg/&lt;volume-uuid&gt;</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  REFERENCE                                                            -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="section-title">Quick Reference</div>
+
+<h3>Useful LVM commands</h3>
+<pre><code><span class="cm"># List volume group</span>
+vgdisplay pulsar-vg
+
+<span class="cm"># List all LVs (including thin pool internals)</span>
+lvs -a pulsar-vg
+
+<span class="cm"># Check thin pool usage</span>
+lvs -o+data_percent,metadata_percent pulsar-vg/pulsar-pool
+
+<span class="cm"># Manually create a thin LV (Pulsar does this automatically)</span>
+lvcreate --thin pulsar-vg/pulsar-pool -V 10G -n test-lv
+
+<span class="cm"># Remove an LV</span>
+lvremove -fy pulsar-vg/test-lv</code></pre>
+
+<h3>Useful tgt commands</h3>
+<pre><code><span class="cm"># List all active iSCSI targets</span>
+tgtadm --lld iscsi --op show --mode target
+
+<span class="cm"># Manually create a target (TID must be unique integer)</span>
+tgtadm --lld iscsi --op new --mode target --tid 1 \
+  --targetname iqn.2026-04.io.pulsar:volume.test
+
+<span class="cm"># Add a LUN backed by a block device</span>
+tgtadm --lld iscsi --op new --mode logicalunit \
+  --tid 1 --lun 1 --backing-store /dev/pulsar-vg/test-lv
+
+<span class="cm"># Open access and delete a target</span>
+tgtadm --lld iscsi --op bind --mode target --tid 1 -I ALL
+tgtadm --lld iscsi --op delete --mode target --tid 1</code></pre>
+
+<h3>Useful iscsiadm commands (on compute host)</h3>
+<pre><code><span class="cm"># Discover targets on a portal</span>
+iscsiadm -m discovery -t sendtargets -p 10.11.3.190
+
+<span class="cm"># Login to a target</span>
+iscsiadm -m node -T iqn.2026-04.io.pulsar:volume.&lt;uuid&gt; \
+  -p 10.11.3.190 --login
+
+<span class="cm"># List active sessions</span>
+iscsiadm -m session -P 3
+
+<span class="cm"># Logout and delete record</span>
+iscsiadm -m node -T iqn.2026-04.io.pulsar:volume.&lt;uuid&gt; \
+  -p 10.11.3.190 --logout
+iscsiadm -m node -T iqn.2026-04.io.pulsar:volume.&lt;uuid&gt; \
+  -p 10.11.3.190 --op delete</code></pre>
+
+<h3>Config file reference</h3>
+<pre><code><span class="cm"># pulsar.yaml — storage agent section</span>
+agent:
+  pillar: storage
+  controller_grpc: "127.0.0.1:9090"
+  node_id: "ag-pulsar-storage-1"
+  storage:
+    node_ip: ""           <span class="cm"># auto-detect primary interface IP if empty</span>
+    backends:
+      lvm:
+        volume_group: "pulsar-vg"
+        thin_pool:    "pulsar-pool"</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  FOOTER                                                               -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="doc-footer">
+  <span>Pulsar IaaS — Internal Engineering Document</span>
+  <span>April 2026 · LVM + iSCSI storage guide</span>
+</div>
+
+</body>
+</html>

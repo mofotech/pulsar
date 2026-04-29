@@ -1,0 +1,109 @@
+{{- if .Values.infraCompute.enabled -}}
+# Runs libvirtd + iscsid on every compute node so that those daemons do not
+# need to be installed directly on the host. The compute agent DaemonSet
+# then communicates with libvirtd via the shared /var/run/libvirt hostPath.
+#
+# The init container loads kvm and iscsi_tcp kernel modules before the main
+# container starts. The modules must be present in the host kernel but do
+# NOT need to be loaded beforehand.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "pulsar.fullname" . }}-infra-compute
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: infra-compute
+spec:
+  selector:
+    matchLabels:
+      {{- include "pulsar.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: infra-compute
+  template:
+    metadata:
+      labels:
+        {{- include "pulsar.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: infra-compute
+    spec:
+      {{- include "pulsar.imagePullSecrets" . | nindent 6 }}
+      # hostPID lets the entrypoint script pgrep across host processes to avoid
+      # starting a duplicate iscsid when one is already running.
+      hostPID: true
+      initContainers:
+        - name: load-modules
+          image: alpine
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              modprobe kvm_intel 2>/dev/null || modprobe kvm_amd 2>/dev/null || true
+              modprobe iscsi_tcp
+              modprobe dm_thin_pool
+          volumeMounts:
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+      containers:
+        - name: infra-compute
+          image: {{ printf "%s:%s" .Values.infraCompute.image.repository .Values.infraCompute.image.tag }}
+          imagePullPolicy: {{ .Values.infraCompute.image.pullPolicy }}
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            # Expose the libvirt socket on the host so the compute agent
+            # (separate DaemonSet) can connect to it.
+            - name: libvirt-run
+              mountPath: /var/run/libvirt
+            # libvirt writes state/images into /var/lib/libvirt
+            - name: libvirt-lib
+              mountPath: /var/lib/libvirt
+            # iscsid: access host /dev and iscsi config.
+            - name: host-dev
+              mountPath: /dev
+            - name: host-sys
+              mountPath: /sys
+            - name: host-iscsi-config
+              mountPath: /etc/iscsi
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+          {{- with .Values.infraCompute.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: libvirt-run
+          hostPath:
+            path: /var/run/libvirt
+            type: DirectoryOrCreate
+        - name: libvirt-lib
+          hostPath:
+            path: /var/lib/libvirt
+            type: DirectoryOrCreate
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-iscsi-config
+          hostPath:
+            path: /etc/iscsi
+            type: DirectoryOrCreate
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+      {{- with .Values.infraCompute.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.infraCompute.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+{{- end }}

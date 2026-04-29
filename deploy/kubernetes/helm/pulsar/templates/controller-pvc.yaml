@@ -1,0 +1,21 @@
+{{- if .Values.controller.persistence.enabled -}}
+{{- if not .Values.controller.persistence.existingClaim -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pulsar.fullname" . }}-image-store
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  accessModes:
+    - {{ .Values.controller.persistence.accessMode }}
+  {{- if .Values.controller.persistence.storageClass }}
+  storageClassName: {{ .Values.controller.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.controller.persistence.size }}
+{{- end }}
+{{- end }}

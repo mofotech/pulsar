@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+# Infrastructure image for Pulsar network nodes.
+# Provides: Open vSwitch (ovsdb-server, ovs-vswitchd), OVN (ovn-controller,
+#           optional ovn-northd + NB/SB databases)
+#
+# Build:
+#   docker build -t <registry>/pulsar-infra-network:<tag> \
+#     -f deploy/docker/Dockerfile.infra-network .
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openvswitch-switch \
+        openvswitch-common \
+        ovn-host \
+        ovn-central \
+        iproute2 \
+        kmod \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /var/run/openvswitch /var/run/ovn /etc/openvswitch /var/lib/ovn
+
+COPY deploy/docker/infra/network-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
