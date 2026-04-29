@@ -1,0 +1,28 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - bodyclose
+    - noctx
+    - gosec
+    - misspell
+
+linters-settings:
+  gosec:
+    excludes:
+      - G115   # integer overflow — too noisy in generated proto code
+
+issues:
+  exclude-dirs:
+    - gen/proto
+  exclude-rules:
+    - path: "_test\\.go"
+      linters:
+        - gosec

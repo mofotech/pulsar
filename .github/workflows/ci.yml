@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Go: lint ────────────────────────────────────────────────────────────────
+  go-lint:
+    name: Go lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  # ── Go: test + build ────────────────────────────────────────────────────────
+  go-build:
+    name: Go build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./... -race -count=1
+
+      - name: Build pulsar (linux/amd64)
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          LDFLAGS="-X github.com/agomez/pulsar/internal/version.Version=${VERSION} \
+                   -X github.com/agomez/pulsar/internal/version.GitCommit=${GIT_COMMIT} \
+                   -X github.com/agomez/pulsar/internal/version.BuildDate=${BUILD_DATE}"
+          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o bin/pulsar ./cmd/pulsar
+
+      - name: Build pulsarctl (linux/amd64)
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          LDFLAGS="-X github.com/agomez/pulsar/internal/version.Version=${VERSION} \
+                   -X github.com/agomez/pulsar/internal/version.GitCommit=${GIT_COMMIT} \
+                   -X github.com/agomez/pulsar/internal/version.BuildDate=${BUILD_DATE}"
+          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o bin/pulsarctl ./cmd/pulsarctl
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulsar-binaries-${{ github.sha }}
+          path: bin/
+          retention-days: 7
+
+  # ── Web UI: typecheck + build ────────────────────────────────────────────────
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulsar-web-${{ github.sha }}
+          path: web/dist/
+          retention-days: 7
