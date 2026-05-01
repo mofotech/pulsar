@@ -17,9 +17,8 @@ controller:
   public_url: "http://controller:8080"
   # oidc_base_url is the externally-reachable address used in OAuth2 redirect_uris.
   # Must match the "Valid redirect URIs" you registered in your IDP (Keycloak, etc.).
-  # Set to the address the *browser* uses to reach the UI — Vite proxies /v1/* to
-  # the controller, so the callback lands on the dev server and is forwarded correctly.
-  oidc_base_url: "http://localhost:5173"
+  # Set to the address the *browser* uses to reach the UI.
+  oidc_base_url: "http://10.11.3.190:3000"
 
 agent:
   controller_grpc: "controller:9090"
