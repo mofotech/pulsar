@@ -13,7 +13,7 @@ TEST_DIR   := /home/ubuntu/pulsar
 .PHONY: build pulsarctl pulsarctl-linux deploy-pulsarctl proto test test-remote sync-remote lint \
         dev-up dev-down \
         up up-local down logs ps \
-        docker docker-local docker-remote migrate-up migrate-down tidy \
+        docker docker-web docker-local docker-remote migrate-up migrate-down tidy \
         web-install web-build web-dev web-lint build-full \
         promote-admin
 
@@ -102,6 +102,13 @@ docker:
 	  --build-arg BUILD_DATE=$(BUILD_DATE) \
 	  -t pulsar:dev -t pulsar:$(VERSION) .
 
+## Build the web frontend Docker image locally
+docker-web:
+	docker build \
+	  --platform linux/amd64 \
+	  -f deploy/docker/Dockerfile.web \
+	  -t pulsar-web:dev .
+
 ## Build image on the test host (avoids cross-arch transfer)
 docker-remote: sync-remote
 	ssh $(TEST_HOST) "cd $(TEST_DIR) && docker build \
@@ -110,7 +117,7 @@ docker-remote: sync-remote
 	  --build-arg GIT_COMMIT=$(GIT_COMMIT) \
 	  -t pulsar:dev ."
 
-## Build image locally (faster) and ship to the test host via docker save | load
+## Build both images locally and ship to the test host via docker save | load
 docker-local:
 	docker build \
 	  --platform linux/amd64 \
@@ -119,9 +126,13 @@ docker-local:
 	  --build-arg GIT_COMMIT=$(GIT_COMMIT) \
 	  --build-arg BUILD_DATE=$(BUILD_DATE) \
 	  -t pulsar:dev .
-	docker save pulsar:dev | ssh $(TEST_HOST) "docker load"
+	docker build \
+	  --platform linux/amd64 \
+	  -f deploy/docker/Dockerfile.web \
+	  -t pulsar-web:dev .
+	docker save pulsar:dev pulsar-web:dev | ssh $(TEST_HOST) "docker load"
 
-## Start full stack using locally-built image
+## Start full stack using locally-built images (build here, run there)
 up-local: sync-remote docker-local
 	ssh $(TEST_HOST) "cd $(TEST_DIR)/deploy/docker && docker compose up -d"
 
