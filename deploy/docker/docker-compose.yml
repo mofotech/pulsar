@@ -157,6 +157,20 @@ services:
       controller:
         condition: service_healthy
 
+# ── Web frontend ───────────────────────────────────────────────────────────────
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.web
+    image: pulsar-web:dev
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      controller:
+        condition: service_healthy
+
 # ── Volumes ────────────────────────────────────────────────────────────────────
 
 volumes:
