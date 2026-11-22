@@ -520,6 +520,8 @@ The controller exposes a REST API under `/v1`.  All endpoints except `/healthz` 
 | GET/POST | /v1/projects | List / create projects |
 | GET/PATCH/DELETE | /v1/projects/{id} | Get / update / delete project |
 | GET/PUT | /v1/projects/{id}/quotas | Quota limits + live usage / change limits (PUT: platform admin) |
+| GET | /v1/projects/{id}/members | List members and their project roles |
+| PUT/DELETE | /v1/projects/{id}/members/{user_id} | Add a member or change their role (`{"role": "reader\|member\|admin"}`) / remove (project admin, org admin, platform admin) |
 | GET/POST | /v1/users | List / create users |
 | GET/POST | /v1/compute/instances | List / create instances |
 | GET/DELETE | /v1/compute/instances/{id} | Get / delete instance |

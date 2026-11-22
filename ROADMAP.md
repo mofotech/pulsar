@@ -40,7 +40,7 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | **OIDC hardening** | ✅ | `cli_redirect` restricted to loopback; IDP `default_role` limited to member/org_admin; SSO never links accounts across orgs or to admins; IDP slugs globally unique |
 | **IdP SSRF protection** | ✅ | Discovery + token exchange use a client that only connects to public IPs over https, checked on the resolved IP (DNS rebinding/redirects included); internal IdPs need operator-set `controller.oidc_allowed_networks`; fetch errors no longer echoed to unauthenticated callers |
 | User creation authz | ✅ | `POST /v1/users` requires org_admin/platform_admin; home project must be in the user's org |
-| Fine-grained RBAC | 🔧 | Coarse admin/member enforced on identity mutations; no per-resource ownership checks yet |
+| Project roles (RBAC) | ✅ | Per-membership role: `reader` (read-only, enforced in `ProjectScopeMiddleware` for every project-scoped route), `member` (manage resources), `admin` (also manage membership). Creators become project admin; last admin protected; `GET/PUT/DELETE /v1/projects/{id}/members` + `pulsarctl projects members/set-member/remove-member`. No creator-ownership checks (by design) |
 
 ---
 
