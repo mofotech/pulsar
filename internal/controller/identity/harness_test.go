@@ -182,7 +182,7 @@ func (e *env) do(method, path, token string, body any) resp {
 	if strings.HasPrefix(path, "/") {
 		url = e.srv.URL + path
 	}
-	req, err := http.NewRequest(method, url, rdr)
+	req, err := http.NewRequestWithContext(context.Background(), method, url, rdr)
 	if err != nil {
 		e.t.Fatal(err)
 	}
