@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/agomez/pulsar/internal/api"
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/pkg/id"
 )
@@ -23,6 +24,47 @@ type Image struct {
 	SizeBytes int64     `json:"size_bytes,omitempty"`
 	URL       string    `json:"url,omitempty"` // set for URL-registered images; for uploads this is the controller download URL
 	CreatedAt time.Time `json:"created_at"`
+	// ProjectID owns the image; empty for platform images.
+	ProjectID string `json:"project_id,omitempty"`
+	// Visibility is "public" (every project) or "private" (owning project
+	// only). Images created before ownership existed have neither field and
+	// are treated as public so nothing in use disappears.
+	Visibility string `json:"visibility"`
+}
+
+const (
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
+)
+
+// IsPublic reports whether every project may see and boot the image.
+func (img *Image) IsPublic() bool {
+	return img.Visibility == VisibilityPublic || (img.Visibility == "" && img.ProjectID == "")
+}
+
+// VisibleTo reports whether a project may see and boot the image.
+func (img *Image) VisibleTo(projectID string) bool {
+	return img.IsPublic() || (projectID != "" && img.ProjectID == projectID)
+}
+
+// UsableBy is the single rule for seeing, booting and building volumes from
+// an image: platform admins may use any image; everyone else, public images
+// and their active project's private ones.
+func (img *Image) UsableBy(ctx context.Context, projectID string) bool {
+	return api.IsPlatformAdmin(ctx) || img.VisibleTo(projectID)
+}
+
+// normalize fills in the effective visibility of images stored before
+// ownership existed, so clients never see "visibility": "".
+func (img *Image) normalize() *Image {
+	if img.Visibility == "" {
+		if img.IsPublic() {
+			img.Visibility = VisibilityPublic
+		} else {
+			img.Visibility = VisibilityPrivate
+		}
+	}
+	return img
 }
 
 type Service struct {
@@ -52,7 +94,10 @@ func (s *Service) Get(ctx context.Context, imageID string) (*Image, error) {
 		return nil, fmt.Errorf("image %s not found", imageID)
 	}
 	var img Image
-	return &img, json.Unmarshal([]byte(val), &img)
+	if err := json.Unmarshal([]byte(val), &img); err != nil {
+		return nil, err
+	}
+	return img.normalize(), nil
 }
 
 func (s *Service) List(ctx context.Context) ([]*Image, error) {
@@ -64,7 +109,7 @@ func (s *Service) List(ctx context.Context) ([]*Image, error) {
 	for _, v := range vals {
 		var img Image
 		if err := json.Unmarshal([]byte(v), &img); err == nil {
-			out = append(out, &img)
+			out = append(out, img.normalize())
 		}
 	}
 	return out, nil

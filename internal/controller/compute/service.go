@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -238,6 +240,11 @@ func (s *Service) CreateInstance(ctx context.Context, projectID, userID string, 
 		if err != nil {
 			return nil, fmt.Errorf("image not found: %w", err)
 		}
+		// Another project's private image must not be bootable (or even
+		// confirmed to exist).
+		if !image.UsableBy(ctx, projectID) {
+			return nil, fmt.Errorf("image not found: image %s not found", req.ImageID)
+		}
 	}
 
 	ht := req.HypervisorType
@@ -280,10 +287,19 @@ func (s *Service) CreateInstance(ctx context.Context, projectID, userID string, 
 		return nil, err
 	}
 
+	// The caller gets its own snapshot: scheduleAndBoot keeps mutating inst
+	// (status, addresses) concurrently, which raced with the handler
+	// serializing the response.
+	resp := *inst
+	resp.KeyNames = slices.Clone(inst.KeyNames)
+	resp.Metadata = maps.Clone(inst.Metadata)
+	resp.PortIDs = slices.Clone(inst.PortIDs)
+	resp.Addresses = slices.Clone(inst.Addresses)
+
 	// Async: schedule → dispatch to agent
 	go s.scheduleAndBoot(context.Background(), inst, req, flavor, image, sshPublicKeys)
 
-	return inst, nil
+	return &resp, nil
 }
 
 func (s *Service) scheduleAndBoot(ctx context.Context, inst *Instance, req CreateInstanceRequest, flavor *Flavor, image *imageservice.Image, sshPublicKeys []string) {

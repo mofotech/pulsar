@@ -422,7 +422,21 @@ func (h *Handler) ListFlavors(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusOK, flavors, middleware.GetReqID(r.Context()))
 }
 
+// requirePlatformAdmin guards platform-wide catalogue changes: a flavor is
+// shared by every tenant (and drives quota accounting), so no project member
+// may create or delete one.
+func requirePlatformAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if api.IsPlatformAdmin(r.Context()) {
+		return true
+	}
+	api.WriteError(w, http.StatusForbidden, "FORBIDDEN", "platform_admin role required", middleware.GetReqID(r.Context()))
+	return false
+}
+
 func (h *Handler) CreateFlavor(w http.ResponseWriter, r *http.Request) {
+	if !requirePlatformAdmin(w, r) {
+		return
+	}
 	var f Flavor
 	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), middleware.GetReqID(r.Context()))
@@ -445,6 +459,9 @@ func (h *Handler) GetFlavor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteFlavor(w http.ResponseWriter, r *http.Request) {
+	if !requirePlatformAdmin(w, r) {
+		return
+	}
 	if err := h.svc.DeleteFlavor(r.Context(), chi.URLParam(r, "id")); err != nil {
 		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", "flavor not found", middleware.GetReqID(r.Context()))
 		return

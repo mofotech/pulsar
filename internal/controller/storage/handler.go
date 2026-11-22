@@ -161,7 +161,13 @@ func (h *Handler) ListVolumeTypes(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusOK, vts, middleware.GetReqID(r.Context()))
 }
 
+// Volume types select storage backends for every tenant, so only platform
+// admins may create or delete them.
 func (h *Handler) CreateVolumeType(w http.ResponseWriter, r *http.Request) {
+	if !api.IsPlatformAdmin(r.Context()) {
+		api.WriteError(w, http.StatusForbidden, "FORBIDDEN", "platform_admin role required", middleware.GetReqID(r.Context()))
+		return
+	}
 	var req CreateVolumeTypeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid request body", middleware.GetReqID(r.Context()))
@@ -186,6 +192,10 @@ func (h *Handler) GetVolumeType(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteVolumeType(w http.ResponseWriter, r *http.Request) {
+	if !api.IsPlatformAdmin(r.Context()) {
+		api.WriteError(w, http.StatusForbidden, "FORBIDDEN", "platform_admin role required", middleware.GetReqID(r.Context()))
+		return
+	}
 	vtID := chi.URLParam(r, "id")
 	if err := h.svc.DeleteVolumeType(r.Context(), vtID); err != nil {
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), middleware.GetReqID(r.Context()))

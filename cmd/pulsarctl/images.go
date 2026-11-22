@@ -47,12 +47,16 @@ func imageListCmd() *cobra.Command {
 			}
 			var rows [][]string
 			for _, it := range items {
+				vis := field(it, "visibility")
+				if vis == "" {
+					vis = "public"
+				}
 				rows = append(rows, []string{
 					field(it, "id"), field(it, "name"), field(it, "format"),
-					field(it, "status"), field(it, "size_bytes"),
+					field(it, "status"), vis, field(it, "size_bytes"),
 				})
 			}
-			printTable("ID|NAME|FORMAT|STATUS|SIZE (bytes)", rows)
+			printTable("ID|NAME|FORMAT|STATUS|VISIBILITY|SIZE (bytes)", rows)
 			return nil
 		},
 	}
@@ -77,7 +81,7 @@ func imageGetCmd() *cobra.Command {
 }
 
 func imageUploadCmd() *cobra.Command {
-	var name, format, filePath string
+	var name, format, filePath, visibility string
 	cmd := &cobra.Command{
 		Use:   "upload",
 		Short: "Upload an image file",
@@ -105,6 +109,9 @@ func imageUploadCmd() *cobra.Command {
 				defer pw.Close()
 				mw.WriteField("name", name)     //nolint:errcheck
 				mw.WriteField("format", format) //nolint:errcheck
+				if visibility != "" {
+					mw.WriteField("visibility", visibility) //nolint:errcheck
+				}
 				part, err := mw.CreateFormFile("file", filepath.Base(filePath))
 				if err != nil {
 					pw.CloseWithError(err)
@@ -148,13 +155,14 @@ func imageUploadCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Image name")
 	cmd.Flags().StringVar(&format, "format", "qcow2", "Disk format (qcow2|raw|oci)")
 	cmd.Flags().StringVar(&filePath, "file", "", "Path to image file")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "private (your project) | public (platform admins); default: public for platform admins, private otherwise")
 	cmd.MarkFlagRequired("name") //nolint:errcheck
 	cmd.MarkFlagRequired("file") //nolint:errcheck
 	return cmd
 }
 
 func imageRegisterCmd() *cobra.Command {
-	var name, format, url string
+	var name, format, url, visibility string
 	cmd := &cobra.Command{
 		Use:   "register",
 		Short: "Register an external image by URL (agent downloads at first use)",
@@ -163,9 +171,11 @@ func imageRegisterCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			data, err := do("POST", apiURL(ep, "/v1/images"), tok, map[string]string{
-				"name": name, "format": format, "url": url,
-			})
+			body := map[string]string{"name": name, "format": format, "url": url}
+			if visibility != "" {
+				body["visibility"] = visibility
+			}
+			data, err := do("POST", apiURL(ep, "/v1/images"), tok, body)
 			if err != nil {
 				return err
 			}
@@ -176,6 +186,7 @@ func imageRegisterCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Image name")
 	cmd.Flags().StringVar(&format, "format", "qcow2", "Disk format (qcow2|raw|oci)")
 	cmd.Flags().StringVar(&url, "url", "", "External image URL")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "private (your project) | public (platform admins); default: public for platform admins, private otherwise")
 	cmd.MarkFlagRequired("name") //nolint:errcheck
 	cmd.MarkFlagRequired("url")  //nolint:errcheck
 	return cmd

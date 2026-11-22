@@ -15,6 +15,7 @@ import (
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/pkg/id"
 
+	imageservice "github.com/agomez/pulsar/internal/controller/image"
 	"github.com/agomez/pulsar/internal/controller/quota"
 )
 
@@ -256,6 +257,16 @@ func (s *Service) CreateVolume(ctx context.Context, projectID string, req Create
 		return nil, fmt.Errorf("name is required")
 	}
 
+	// Resolve (and authorize) the source image before creating anything.
+	var imageURL string
+	if req.ImageID != "" {
+		u, err := s.getImageURL(ctx, projectID, req.ImageID)
+		if err != nil {
+			return nil, err
+		}
+		imageURL = u
+	}
+
 	agent, err := s.pickStorageAgent()
 	if err != nil {
 		return nil, err
@@ -281,17 +292,6 @@ func (s *Service) CreateVolume(ctx context.Context, projectID string, req Create
 	want := quota.Usage{quota.Volumes: 1, quota.StorageGB: req.SizeGB}
 	if err := s.quota.Reserve(ctx, projectID, want, func() error { return s.saveVolume(ctx, vol) }); err != nil {
 		return nil, err
-	}
-
-	// Resolve image URL from etcd if this is a bootable volume.
-	var imageURL string
-	if req.ImageID != "" {
-		imageURL, err = s.getImageURL(ctx, req.ImageID)
-		if err != nil {
-			vol.Status = VolumeStatusError
-			s.saveVolume(ctx, vol) //nolint:errcheck
-			return vol, nil
-		}
 	}
 
 	// Timeout is longer when image population is required (qemu-img convert can take minutes).
@@ -1018,16 +1018,17 @@ func (s *Service) getSnapshotByVolume(ctx context.Context, projectID, volumeID s
 
 // getImageURL fetches the download URL for an image from etcd.
 // Images are stored at /pulsar/images/<id> with a "url" field.
-func (s *Service) getImageURL(ctx context.Context, imageID string) (string, error) {
+func (s *Service) getImageURL(ctx context.Context, projectID, imageID string) (string, error) {
 	val, err := s.store.Get(ctx, "/pulsar/images/"+imageID)
 	if err != nil || val == "" {
 		return "", fmt.Errorf("image %s not found", imageID)
 	}
-	var img struct {
-		URL string `json:"url"`
-	}
+	var img imageservice.Image
 	if err := json.Unmarshal([]byte(val), &img); err != nil {
 		return "", fmt.Errorf("parse image record: %w", err)
+	}
+	if !img.UsableBy(ctx, projectID) {
+		return "", fmt.Errorf("image %s not found", imageID) // don't reveal other projects' images
 	}
 	if img.URL == "" {
 		return "", fmt.Errorf("image %s has no URL", imageID)

@@ -2,8 +2,10 @@ package image
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"time"
 
@@ -27,6 +29,12 @@ func NewHandler(svc *Service, publicURL string, log *zap.Logger) *Handler {
 	return &Handler{svc: svc, publicURL: publicURL, log: log}
 }
 
+// canSee: platform admins see every image; others see public images and
+// their active project's private ones.
+func canSee(r *http.Request, img *Image) bool {
+	return img.UsableBy(r.Context(), api.ProjectIDFromContext(r.Context()))
+}
+
 // List handles GET /v1/images
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	images, err := h.svc.List(r.Context())
@@ -34,21 +42,64 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}
-	if images == nil {
-		images = []*Image{}
+	out := make([]*Image, 0, len(images))
+	for _, img := range images {
+		if canSee(r, img) {
+			out = append(out, img)
+		}
 	}
-	api.WriteJSON(w, http.StatusOK, images, middleware.GetReqID(r.Context()))
+	api.WriteJSON(w, http.StatusOK, out, middleware.GetReqID(r.Context()))
 }
 
 // Get handles GET /v1/images/{id}
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	img, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
+	if err != nil || !canSee(r, img) {
 		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", "image not found", middleware.GetReqID(r.Context()))
 		return
 	}
 	api.WriteJSON(w, http.StatusOK, img, middleware.GetReqID(r.Context()))
 }
+
+func errorCode(status int) string {
+	if status == http.StatusForbidden {
+		return "FORBIDDEN"
+	}
+	return "BAD_REQUEST"
+}
+
+// ownership decides who owns a new image. Private images belong to the
+// caller's active project; only platform admins may publish public images,
+// since a public image is offered to every tenant. With no visibility given,
+// a platform admin publishes to the shared catalogue (as before images had
+// owners) and everyone else creates a private image.
+func ownership(r *http.Request, visibility string) (projectID, vis string, status int, msg string) {
+	ctx := r.Context()
+	if visibility == "" {
+		visibility = VisibilityPrivate
+		if api.IsPlatformAdmin(ctx) {
+			visibility = VisibilityPublic
+		}
+	}
+	switch visibility {
+	case VisibilityPrivate:
+		p := api.ProjectIDFromContext(ctx)
+		if p == "" {
+			return "", "", http.StatusBadRequest, "select a project to own the image (X-Project-Id)"
+		}
+		return p, VisibilityPrivate, 0, ""
+	case VisibilityPublic:
+		if !api.IsPlatformAdmin(ctx) {
+			return "", "", http.StatusForbidden, "only platform admins can publish public images"
+		}
+		return "", VisibilityPublic, 0, ""
+	default:
+		return "", "", http.StatusBadRequest, "visibility must be 'private' or 'public'"
+	}
+}
+
+// maxFieldSize caps each non-file multipart field.
+const maxFieldSize = 4 << 10
 
 // Create handles POST /v1/images
 // Accepts either:
@@ -69,33 +120,60 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createFromUpload(w http.ResponseWriter, r *http.Request) {
 	reqID := middleware.GetReqID(r.Context())
 
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	// Stream the form instead of ParseMultipartForm, which would spool the
+	// whole (up to maxUploadSize) file to temp disk before any check runs.
+	// The small fields must precede the file part — pulsarctl sends them
+	// first — so name and ownership are validated before a byte of the
+	// image is read.
+	mr, err := r.MultipartReader()
+	if err != nil {
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid multipart form", reqID)
 		return
 	}
+	fields := map[string]string{}
+	var file *multipart.Part
+	for file == nil {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "file field missing", reqID)
+			return
+		}
+		if err != nil {
+			api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid multipart form", reqID)
+			return
+		}
+		if part.FormName() == "file" {
+			file = part
+			break
+		}
+		v, _ := io.ReadAll(io.LimitReader(part, maxFieldSize))
+		fields[part.FormName()] = string(v)
+	}
+	defer file.Close()
 
-	name := r.FormValue("name")
-	format := r.FormValue("format")
+	name := fields["name"]
+	format := fields["format"]
 	if name == "" {
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "name is required", reqID)
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST",
+			"name is required (send the name, format and visibility fields before the file)", reqID)
+		return
+	}
+	projectID, visibility, status, msg := ownership(r, fields["visibility"])
+	if status != 0 {
+		api.WriteError(w, status, errorCode(status), msg, reqID)
 		return
 	}
 	if format == "" {
 		format = "qcow2"
 	}
 
-	file, _, err := r.FormFile("file")
-	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", fmt.Sprintf("file field missing: %v", err), reqID)
-		return
-	}
-	defer file.Close()
-
 	img := &Image{
-		Name:      name,
-		Format:    format,
-		Status:    "queued",
-		CreatedAt: time.Now().UTC(),
+		Name:       name,
+		Format:     format,
+		Status:     "queued",
+		CreatedAt:  time.Now().UTC(),
+		ProjectID:  projectID,
+		Visibility: visibility,
 	}
 	if err := h.svc.Create(r.Context(), img); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
@@ -126,9 +204,10 @@ func (h *Handler) createFromUpload(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createFromURL(w http.ResponseWriter, r *http.Request) {
 	reqID := middleware.GetReqID(r.Context())
 	var req struct {
-		Name   string `json:"name"`
-		Format string `json:"format"`
-		URL    string `json:"url"`
+		Name       string `json:"name"`
+		Format     string `json:"format"`
+		URL        string `json:"url"`
+		Visibility string `json:"visibility"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), reqID)
@@ -141,11 +220,18 @@ func (h *Handler) createFromURL(w http.ResponseWriter, r *http.Request) {
 	if req.Format == "" {
 		req.Format = "qcow2"
 	}
+	projectID, visibility, status, msg := ownership(r, req.Visibility)
+	if status != 0 {
+		api.WriteError(w, status, errorCode(status), msg, reqID)
+		return
+	}
 	img := &Image{
-		Name:   req.Name,
-		Format: req.Format,
-		Status: "active",
-		URL:    req.URL,
+		Name:       req.Name,
+		Format:     req.Format,
+		Status:     "active",
+		URL:        req.URL,
+		ProjectID:  projectID,
+		Visibility: visibility,
 	}
 	if err := h.svc.Create(r.Context(), img); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
@@ -154,10 +240,24 @@ func (h *Handler) createFromURL(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusCreated, img, reqID)
 }
 
-// Delete handles DELETE /v1/images/{id}
+// Delete handles DELETE /v1/images/{id}. The owning project (members and
+// admins; readers are already stopped by the project scope) or a platform
+// admin may delete an image; public platform images need a platform admin.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
-		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", "image not found", middleware.GetReqID(r.Context()))
+	ctx := r.Context()
+	reqID := middleware.GetReqID(ctx)
+	img, err := h.svc.Get(ctx, chi.URLParam(r, "id"))
+	if err != nil || !canSee(r, img) {
+		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", "image not found", reqID)
+		return
+	}
+	owner := img.ProjectID != "" && img.ProjectID == api.ProjectIDFromContext(ctx)
+	if !owner && !api.IsPlatformAdmin(ctx) {
+		api.WriteError(w, http.StatusForbidden, "FORBIDDEN", "only the owning project or a platform admin can delete this image", reqID)
+		return
+	}
+	if err := h.svc.Delete(ctx, img.ID); err != nil {
+		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", "image not found", reqID)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
