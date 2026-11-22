@@ -120,7 +120,7 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 				ctx = context.WithValue(ctx, ctxKeyOrgID, matched.orgID)
 				ctx = context.WithValue(ctx, ctxKeyOrgRole, matched.orgRole)
 				fillPrincipalSlot(ctx, Principal{
-					UserID: matched.userID, ProjectID: projectID, OrgID: matched.orgID,
+					UserID: matched.userID, Email: matched.email, ProjectID: projectID, OrgID: matched.orgID,
 					Role: matched.role, OrgRole: matched.orgRole,
 				})
 				next.ServeHTTP(w, r.WithContext(ctx))
@@ -186,8 +186,8 @@ func HashPAT(raw string) string {
 }
 
 type patMatch struct {
-	patID, userID, orgID, role, orgRole string
-	projectID                           *string
+	patID, userID, email, orgID, role, orgRole string
+	projectID                                  *string
 }
 
 // lookupPAT resolves a raw PAT to its owner, or returns (nil, nil).
@@ -197,7 +197,7 @@ type patMatch struct {
 // bcrypt hash; those (and only those) are compared, and a match is upgraded
 // to the fast path so the fallback set shrinks to nothing as tokens are used.
 func lookupPAT(ctx context.Context, db *postgres.DB, raw string) (*patMatch, error) {
-	const cols = `p.id, u.id, u.org_id, u.role, u.org_role, u.project_id`
+	const cols = `p.id, u.id, u.email, u.org_id, u.role, u.org_role, u.project_id`
 	sum := HashPAT(raw)
 
 	var m patMatch
@@ -206,7 +206,7 @@ func lookupPAT(ctx context.Context, db *postgres.DB, raw string) (*patMatch, err
 		   JOIN users u ON u.id = p.user_id
 		  WHERE p.token_sha256 = $1
 		    AND (p.expires_at IS NULL OR p.expires_at > now())`, sum,
-	).Scan(&m.patID, &m.userID, &m.orgID, &m.role, &m.orgRole, &m.projectID)
+	).Scan(&m.patID, &m.userID, &m.email, &m.orgID, &m.role, &m.orgRole, &m.projectID)
 	if err == nil {
 		return &m, nil
 	}
@@ -227,7 +227,7 @@ func lookupPAT(ctx context.Context, db *postgres.DB, raw string) (*patMatch, err
 	for rows.Next() {
 		var hash string
 		var c patMatch
-		if err := rows.Scan(&hash, &c.patID, &c.userID, &c.orgID, &c.role, &c.orgRole, &c.projectID); err != nil {
+		if err := rows.Scan(&hash, &c.patID, &c.userID, &c.email, &c.orgID, &c.role, &c.orgRole, &c.projectID); err != nil {
 			return nil, err
 		}
 		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(raw)) == nil {

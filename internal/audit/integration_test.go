@@ -270,3 +270,88 @@ func TestAuditQueryAuthorization(t *testing.T) {
 		}
 	}
 }
+
+// A handler that panics must still be audited (as a 500), and the panic must
+// still reach Recoverer.
+func TestMiddlewareRecordsPanics(t *testing.T) {
+	db := testutil.Postgres(t)
+	rec := NewRecorder(db, zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Use(chimw.RequestID)
+	r.Use(chimw.Recoverer)
+	r.Use(rec.Middleware)
+	r.Delete("/v1/compute/instances/{id}", func(http.ResponseWriter, *http.Request) {
+		panic("half-done delete")
+	})
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	if status, _ := call(t, srv, "DELETE", "/v1/compute/instances/inst-1", "", ""); status != 500 {
+		t.Fatalf("status %d, want 500 from Recoverer", status)
+	}
+	rec.Close()
+
+	got := events(t, db)
+	if len(got) != 1 {
+		t.Fatalf("recorded %d events, want 1: %+v", len(got), got)
+	}
+	if e := got[0]; e.ResourceType != "compute.instances" || e.ResourceID != "inst-1" ||
+		e.Action != "delete" || e.Outcome != Failure || e.Status != 500 {
+		t.Errorf("panic event = %+v", e)
+	}
+}
+
+// Auth routes are recorded by their handlers; any path that doesn't record
+// (bad body, internal error, bad SSO state) gets a fallback event instead.
+func TestAuthRoutesFallBackWhenHandlerDoesNotRecord(t *testing.T) {
+	db := testutil.Postgres(t)
+	rec := NewRecorder(db, zap.NewNop())
+
+	r := chi.NewRouter()
+	r.Use(chimw.RequestID)
+	r.Use(rec.Middleware)
+	r.Post("/v1/auth/tokens", func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Query().Get("recorded") != "" {
+			e := RequestEvent(req, "auth", "login", Success)
+			e.ActorEmail = "ada@example.test"
+			rec.Record(e)
+			MarkRecorded(req)
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest) // malformed body: no explicit record
+	})
+	r.Delete("/v1/auth/tokens", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized) // invalid token
+	})
+	r.Get("/v1/auth/oidc/{idp_slug}/callback", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest) // bad state
+	})
+	r.Get("/v1/auth/idps", func(w http.ResponseWriter, _ *http.Request) {}) // a plain read: not audited
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	call(t, srv, "POST", "/v1/auth/tokens?recorded=1", "", `{}`)
+	call(t, srv, "POST", "/v1/auth/tokens", "", `not json`)
+	call(t, srv, "DELETE", "/v1/auth/tokens", "", "")
+	call(t, srv, "GET", "/v1/auth/oidc/acme/callback?state=x", "", "")
+	call(t, srv, "GET", "/v1/auth/idps?email=a@b", "", "")
+	rec.Close()
+
+	got := events(t, db)
+	want := []struct{ action, outcome, email string }{
+		{"login", Success, "ada@example.test"}, // explicit, not duplicated
+		{"login", Failure, ""},
+		{"logout", Denied, ""},
+		{"sso_login", Failure, ""},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("recorded %d events, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if e := got[i]; e.ResourceType != "auth" || e.Action != w.action || e.Outcome != w.outcome || e.ActorEmail != w.email {
+			t.Errorf("event %d = %s %s %q, want auth %s %s %q", i, e.Action, e.Outcome, e.ActorEmail, w.action, w.outcome, w.email)
+		}
+	}
+}

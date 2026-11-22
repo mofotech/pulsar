@@ -23,6 +23,9 @@ func newAuditCmd() *cobra.Command {
 			"  pulsarctl audit --outcome denied --action login\n" +
 			"  pulsarctl audit --resource-type compute.instances --resource-id <id>",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The server caps a page at 1000; clamp here too so the paging
+			// hint below still fires for --limit 5000.
+			f.limit = min(f.limit, auditMaxLimit)
 			q := url.Values{}
 			for k, v := range map[string]string{
 				"project_id": f.project, "user_id": f.user, "org_id": f.org,
@@ -113,6 +116,9 @@ func newAuditCmd() *cobra.Command {
 	fl.Int64Var(&f.beforeID, "before-id", 0, "Page: events older than this ID")
 	return cmd
 }
+
+// auditMaxLimit mirrors the server's page cap (audit.maxLimit).
+const auditMaxLimit = 1000
 
 // parseSince accepts an RFC 3339 time, or a duration ago such as 90m, 24h or 7d.
 func parseSince(v string, now time.Time) (string, error) {

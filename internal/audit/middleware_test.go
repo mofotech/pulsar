@@ -98,3 +98,35 @@ func TestNilRecorderIsANoop(t *testing.T) {
 		t.Fatal("nil recorder must pass requests through")
 	}
 }
+
+func TestSanitizeEmail(t *testing.T) {
+	for in, want := range map[string]string{
+		"ada@example.test":                 "ada@example.test",
+		"  ada@example.test ":              "ada@example.test",
+		"hunter2":                          "", // a password typed into the email box
+		"correct horse@battery.staple":     "",
+		"a@b@example.test":                 "",
+		"@example.test":                    "",
+		"ada@":                             "",
+		"ada@localhost":                    "ada@localhost",
+		strings.Repeat("a", 250) + "@x.io": "",
+	} {
+		if got := SanitizeEmail(in); got != want {
+			t.Errorf("SanitizeEmail(%.40q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestUUIDOrNil(t *testing.T) {
+	for in, valid := range map[string]bool{
+		"6f1c2a9e-3b7d-4c8e-9a0f-1d2e3f4a5b6c":   true,
+		"zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz":   false, // right shape, not hex
+		"{6f1c2a9e-3b7d-4c8e-9a0f-1d2e3f4a5b6c}": false,
+		"not-a-uuid":                             false,
+		"":                                       false,
+	} {
+		if got := uuidOrNil(in); (got != nil) != valid {
+			t.Errorf("uuidOrNil(%q) = %v, want valid=%v", in, got, valid)
+		}
+	}
+}

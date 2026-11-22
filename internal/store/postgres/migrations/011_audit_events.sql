@@ -24,3 +24,20 @@ CREATE INDEX IF NOT EXISTS audit_events_user_time_idx ON audit_events (user_id, 
 
 DROP INDEX IF EXISTS audit_events_user_time_idx;
 DROP INDEX IF EXISTS audit_events_org_time_idx;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS duration_ms;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS source_ip;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS status;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS path;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS route;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS method;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS outcome;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS actor_email;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS org_id;
+-- Values recorded since 011 (request IDs like "host/abc-000042", slug
+-- resource IDs) aren't UUIDs; null them rather than fail the cast.
+ALTER TABLE audit_events ALTER COLUMN request_id TYPE UUID USING
+    CASE WHEN request_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         THEN request_id::uuid END;
+ALTER TABLE audit_events ALTER COLUMN resource_id TYPE UUID USING
+    CASE WHEN resource_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         THEN resource_id::uuid END;

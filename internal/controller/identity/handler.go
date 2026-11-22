@@ -44,9 +44,10 @@ func (h *Handler) SetAuditRecorder(r *audit.Recorder) { h.audit = r }
 // recordAuth records an authentication event. Never pass secrets.
 func (h *Handler) recordAuth(r *http.Request, action, outcome, userID, orgID, email string) {
 	e := audit.RequestEvent(r, "auth", action, outcome)
-	e.UserID, e.OrgID, e.ActorEmail = userID, orgID, email
+	e.UserID, e.OrgID, e.ActorEmail = userID, orgID, audit.SanitizeEmail(email)
 	e.ResourceID = userID
 	h.audit.Record(e)
+	audit.MarkRecorded(r)
 }
 
 func NewHandler(cfg *config.Config, db *postgres.DB, store *etcd.Client, log *zap.Logger) *Handler {

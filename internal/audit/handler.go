@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	"github.com/agomez/pulsar/internal/api"
@@ -105,8 +107,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Pool().Query(ctx, sql, args...)
 	if err != nil {
-		// Typically a malformed uuid filter.
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid filter value", reqID)
+		h.queryError(w, err, reqID)
 		return
 	}
 	defer rows.Close()
@@ -123,8 +124,21 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		events = append(events, e)
 	}
 	if err := rows.Err(); err != nil {
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid filter value", reqID)
+		h.queryError(w, err, reqID)
 		return
 	}
 	api.WriteJSON(w, http.StatusOK, events, reqID)
+}
+
+// queryError answers 400 for a filter value Postgres rejected as malformed
+// (e.g. project_id=not-a-uuid, SQLSTATE 22P02) and logs everything else —
+// pool exhaustion, dropped connections — as a 500 so it reaches alerting.
+func (h *Handler) queryError(w http.ResponseWriter, err error, reqID string) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid filter value", reqID)
+		return
+	}
+	h.log.Error("audit list query", zap.Error(err), zap.String("request_id", reqID))
+	api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to read audit log", reqID)
 }

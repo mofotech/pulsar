@@ -9,13 +9,21 @@ package audit
 
 import (
 	"context"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/agomez/pulsar/internal/store/postgres"
+	"github.com/agomez/pulsar/pkg/retry"
 )
+
+// writeTimeout bounds every audit write — background batches and inline
+// fallbacks alike — so a stalled database can't hang requests or shutdown.
+const writeTimeout = 10 * time.Second
 
 // Outcomes.
 const (
@@ -57,6 +65,17 @@ type Recorder struct {
 
 	mu     sync.RWMutex // guards closed vs. sends on queue
 	closed bool
+
+	dropped atomic.Int64 // events that could not be written at all
+}
+
+// Dropped reports how many events have been lost because they could not be
+// written even after retries. Export it once the controller serves /metrics.
+func (r *Recorder) Dropped() int64 {
+	if r == nil {
+		return 0
+	}
+	return r.dropped.Load()
 }
 
 // NewRecorder starts the background writer; call Close on shutdown to flush.
@@ -76,17 +95,20 @@ func (r *Recorder) Record(e Event) {
 		e.OccurredAt = time.Now().UTC()
 	}
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if r.closed {
-		// A request finishing during shutdown: still persist it.
-		r.write(context.Background(), []Event{e})
-		return
+	queued := false
+	if !r.closed {
+		select {
+		case r.queue <- e:
+			queued = true
+		default:
+			r.log.Warn("audit queue full; writing inline")
+		}
 	}
-	select {
-	case r.queue <- e:
-	default:
-		r.log.Warn("audit queue full; writing inline")
-		r.write(context.Background(), []Event{e})
+	// A request finishing during shutdown, or a full queue: persist it
+	// inline. The lock is released first so a slow write can't block Close.
+	r.mu.RUnlock()
+	if !queued {
+		r.write([]Event{e})
 	}
 }
 
@@ -122,41 +144,58 @@ func (r *Recorder) run() {
 				break drain
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		r.write(ctx, batch)
-		cancel()
+		r.write(batch)
 	}
 }
 
-func (r *Recorder) write(ctx context.Context, events []Event) {
+// write persists events, bounded by writeTimeout for the batch attempt and
+// again for the fallback (which gets a fresh deadline, so a batch that timed
+// out in Begin still gets its retries).
+func (r *Recorder) write(events []Event) {
+	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
+	err := r.writeBatch(ctx, events)
+	cancel()
+	if err != nil {
+		// Any batch failure — Begin, a bad row, or Commit (e.g. a failover or
+		// connection reset) — falls back to row-by-row writes with retries,
+		// so only rows that are themselves unwritable are lost. A Commit
+		// error is ambiguous (the batch may have landed), so this can
+		// duplicate events; for an audit log a duplicate beats a gap.
+		r.log.Warn("audit: batch write failed; retrying row by row",
+			zap.Error(err), zap.Int("events", len(events)))
+		ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
+		defer cancel()
+		r.writeEach(ctx, events)
+	}
+}
+
+func (r *Recorder) writeBatch(ctx context.Context, events []Event) error {
 	tx, err := r.db.Pool().Begin(ctx)
 	if err != nil {
-		r.log.Error("audit: begin", zap.Error(err), zap.Int("events", len(events)))
-		return
+		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	for _, e := range events {
 		if _, err := tx.Exec(ctx, insertSQL, insertArgs(e)...); err != nil {
-			// Never lose the whole batch to one bad row: log it, keep going.
-			r.log.Error("audit: insert", zap.Error(err), zap.String("action", e.Action),
-				zap.String("resource_type", e.ResourceType), zap.String("request_id", e.RequestID))
-			_ = tx.Rollback(ctx)
-			r.writeEach(ctx, events)
-			return
+			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		r.log.Error("audit: commit", zap.Error(err), zap.Int("events", len(events)))
-	}
+	return tx.Commit(ctx)
 }
 
-// writeEach retries a failed batch row by row, so only the bad row is lost.
+// writeEach writes events one at a time, retrying each with backoff, so a
+// transient outage or one bad row doesn't take the rest of the batch with it.
 func (r *Recorder) writeEach(ctx context.Context, events []Event) {
 	for _, e := range events {
-		_, err := r.db.Pool().Exec(ctx, insertSQL, insertArgs(e)...)
+		err := retry.Do(ctx, 3, 100*time.Millisecond, func() error {
+			_, err := r.db.Pool().Exec(ctx, insertSQL, insertArgs(e)...)
+			return err
+		})
 		if err != nil {
+			n := r.dropped.Add(1)
 			r.log.Error("audit: dropping unwritable event", zap.Error(err),
-				zap.String("action", e.Action), zap.String("request_id", e.RequestID))
+				zap.String("action", e.Action), zap.String("resource_type", e.ResourceType),
+				zap.String("request_id", e.RequestID), zap.Int64("dropped_total", n))
 		}
 	}
 }
@@ -213,8 +252,29 @@ func insertArgs(e Event) []any {
 // uuidOrNil keeps non-UUID strings (e.g. a garbage claim) from failing the
 // insert of an otherwise valid event.
 func uuidOrNil(s string) any {
-	if len(s) != 36 || s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
+	if len(s) != 36 {
+		return nil // also rejects the braced/urn forms uuid.Parse accepts
+	}
+	if _, err := uuid.Parse(s); err != nil {
 		return nil
+	}
+	return s
+}
+
+// maxEmailLen is the longest valid address (RFC 5321 path limit).
+const maxEmailLen = 254
+
+// SanitizeEmail returns s if it is plausibly an email address and "" if not.
+// Login attempts record what was typed, and people regularly type their
+// password into the username box; that must not end up in a log admins can
+// read, and neither should multi-megabyte junk.
+func SanitizeEmail(s string) string {
+	s = strings.TrimSpace(s)
+	at := strings.IndexByte(s, '@')
+	if len(s) > maxEmailLen || at < 1 || at != strings.LastIndexByte(s, '@') ||
+		at == len(s)-1 ||
+		strings.ContainsFunc(s, func(c rune) bool { return c <= ' ' || c == 0x7f }) {
+		return ""
 	}
 	return s
 }
