@@ -37,6 +37,8 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | **Identity Providers UI page** | ✅ | `IdpPage` — CRUD for org IDPs; toggle enable/disable; domain hint |
 | **Organizations UI page** | ✅ | `OrgsPage` — platform_admin view; create, suspend, delete orgs |
 | **Project scope middleware** | ✅ | `ProjectScopeMiddleware` validates project membership + org boundary; platform_admin bypasses |
+| **OIDC hardening** | ✅ | `cli_redirect` restricted to loopback; IDP `default_role` limited to member/org_admin; SSO never links accounts across orgs or to admins; IDP slugs globally unique |
+| User creation authz | ✅ | `POST /v1/users` requires org_admin/platform_admin; home project must be in the user's org |
 | Fine-grained RBAC | 🔧 | Coarse admin/member enforced on identity mutations; no per-resource ownership checks yet |
 
 ---
@@ -160,6 +162,8 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | Docker Compose deployment | ✅ | Full 6-container stack; health checks |
 | Standalone web frontend container | ✅ | `Dockerfile.web` + nginx (`deploy/docker/nginx.web.conf`) with Docker DNS resolver and WebSocket-aware `Connection` header; `make docker-web` |
 | CI (GitHub Actions) | ✅ | golangci-lint, `go test -race`, linux/amd64 builds of `pulsar` + `pulsarctl`, web typecheck + build; artifacts uploaded |
+| Integration tests | ✅ | Identity/auth/OIDC and tenant-isolation tests against real Postgres + etcd (`make test-integration`; service containers in CI); initdb ↔ migrations schema-drift test |
+| Tagged releases | ✅ | `vX.Y.Z` tag → GoReleaser binaries (pulsar linux amd64/arm64, pulsarctl linux/darwin/windows) + GHCR images; snapshot dry run in CI |
 | Prometheus metrics endpoint | ✅ | `:9091/metrics` on controller |
 | etcd state store | ✅ | All real-time resource state |
 | PostgreSQL ledger | ✅ | Users, projects, quotas, audit; auto-migrated |

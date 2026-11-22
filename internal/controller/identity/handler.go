@@ -648,6 +648,19 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	// Only platform admins (role 'admin' or org_role 'platform_admin') and org
+	// admins may create users. Previously any authenticated member could.
+	callerRole := api.RoleFromContext(r.Context())
+	if callerRole != "admin" {
+		switch api.OrgRoleFromContext(r.Context()) {
+		case "platform_admin", "org_admin":
+		default:
+			api.WriteError(w, http.StatusForbidden, "FORBIDDEN",
+				"org_admin or platform_admin role required", middleware.GetReqID(r.Context()))
+			return
+		}
+	}
+
 	var req struct {
 		Email     string `json:"email"`
 		Password  string `json:"password"`
@@ -727,6 +740,16 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	// Use NULL when not supplied so the FK constraint isn't violated.
 	var projectIDArg *string
 	if req.ProjectID != "" {
+		// The home project must belong to the user's org; otherwise a caller
+		// could seed membership in another tenant's project.
+		var projectOrgID string
+		if err := h.db.Pool().QueryRow(ctx,
+			`SELECT org_id::text FROM projects WHERE id = $1`, req.ProjectID,
+		).Scan(&projectOrgID); err != nil || projectOrgID != orgID {
+			api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST",
+				"project_id must be a project in the user's organization", middleware.GetReqID(ctx))
+			return
+		}
 		projectIDArg = &req.ProjectID
 	}
 

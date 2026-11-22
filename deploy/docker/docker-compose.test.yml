@@ -1,0 +1,38 @@
+# Throwaway Postgres + etcd for integration tests (make test-integration).
+# Uses non-default ports so it can run alongside the dev stack or other
+# local databases, and tmpfs so every `up` starts from a clean slate.
+name: pulsar-test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pulsar
+      POSTGRES_PASSWORD: pulsar-test
+      POSTGRES_DB: pulsar
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsar"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.15
+    command:
+      - etcd
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://127.0.0.1:52379
+    ports:
+      - "127.0.0.1:52379:2379"
+    tmpfs:
+      - /etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://127.0.0.1:2379", "endpoint", "health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

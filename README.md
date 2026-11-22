@@ -132,8 +132,13 @@ PULSAR_AGENT_CONTROLLER_GRPC=10.0.0.1:9090 bin/pulsar agent --pillar=compute
 ## Testing
 
 ```bash
-# All unit tests, with race detector
+# Unit tests, with race detector (integration tests are skipped)
 make test
+
+# Unit + integration tests: starts throwaway Postgres (:55432) and etcd (:52379)
+# from deploy/docker/docker-compose.test.yml, which keep running between runs
+make test-integration
+make test-deps-down          # stop them
 
 # Sync source to test host and run tests there
 make test-remote
@@ -142,14 +147,41 @@ make test-remote
 make lint
 ```
 
+Integration tests read `PULSAR_TEST_PG_DSN` / `PULSAR_TEST_ETCD` (set by `make test-integration`) and skip when they're unset. Each test gets a freshly migrated database. CI sets `PULSAR_TEST_REQUIRE=1`, so missing services fail instead of skip.
+
 Test coverage includes:
 
 | Package | Tests |
 |---|---|
 | `pkg/fsm` | FSM allowed/denied transitions, error state, concurrent safety |
 | `pkg/retry` | First-attempt success, retry-then-succeed, exhausted, context cancel |
-| `internal/api` | JWT middleware: missing header, bad format, expired, valid, wrong secret |
-| `internal/controller/compute` | Scheduler: least-loaded, hypervisor filtering, no-match |
+| `internal/api` | JWT middleware: missing header, bad format, expired, valid, wrong secret. Project-scope tenant isolation (integration) |
+| `internal/config` | JWT secret validation; env-var binding for secrets |
+| `internal/controller/compute` | Scheduler: least-loaded, hypervisor filtering, no-match; hypervisor type validation |
+| `internal/controller/registry` | Agent record snapshots; concurrent heartbeat/list under `-race` |
+| `internal/controller/identity` | *(integration)* Login, JWT claims and revocation, PAT lifecycle/expiry/ownership, user-creation authz, OIDC authorize/callback against a fake IdP (state CSRF + replay, auto-provisioning, account linking, CLI loopback redirect, IDP role and slug rules) |
+| `internal/store/postgres` | *(integration)* initdb-bootstrapped and migrated databases end up with identical schemas |
+
+---
+
+## Releasing
+
+Push a semver tag and `.github/workflows/release.yml` does the rest, after the full CI suite passes on that tag:
+
+```bash
+git tag -a v0.12.0 -m "v0.12.0"
+git push origin v0.12.0
+```
+
+- **GitHub release** (via GoReleaser, `.goreleaser.yaml`):
+  - `pulsar`: linux amd64/arm64, with the web UI embedded
+  - `pulsarctl`: linux/darwin/windows on amd64/arm64
+  - `checksums.txt` and a grouped changelog
+- **Container images** on GHCR, tagged `X.Y.Z`, `X.Y` and `latest`:
+  - `ghcr.io/mofotech/pulsar`
+  - `ghcr.io/mofotech/pulsar-web`
+- Tags with a suffix (`v0.13.0-rc.1`) become pre-releases, and their images don't move `latest`.
+- CI runs a snapshot build of the GoReleaser config on every push. To try it locally, run `make release-snapshot` (needs `goreleaser` v2).
 
 ---
 

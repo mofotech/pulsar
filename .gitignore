@@ -1,4 +1,5 @@
 # Compiled binaries
+/dist/
 bin/pulsar
 bin/pulsarctl
 bin/pulsarctl-linux

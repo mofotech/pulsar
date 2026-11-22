@@ -1,0 +1,102 @@
+# GoReleaser config — builds release binaries when a vX.Y.Z tag is pushed
+# (.github/workflows/release.yml). CI runs a snapshot build of this config on
+# every push so it can't silently break. Local dry run: make release-snapshot
+version: 2
+
+project_name: pulsar
+
+before:
+  hooks:
+    # The controller embeds the web UI (web/embed.go: //go:embed all:dist);
+    # without this the released binary would serve an empty UI.
+    - npm --prefix web ci
+    - npm --prefix web run build
+    # Vite empties web/dist, deleting the tracked .gitkeep stub; restore it or
+    # GoReleaser aborts the release because the git tree is dirty.
+    - git checkout -- web/dist/.gitkeep
+
+builds:
+  # Server: controller + agents. Linux only (KVM/libvirt, OVN, LVM hosts).
+  - id: pulsar
+    main: ./cmd/pulsar
+    binary: pulsar
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/agomez/pulsar/internal/version.Version={{ .Version }}
+      - -X github.com/agomez/pulsar/internal/version.GitCommit={{ .ShortCommit }}
+      - -X github.com/agomez/pulsar/internal/version.BuildDate={{ .Date }}
+
+  # CLI: runs wherever operators work.
+  - id: pulsarctl
+    main: ./cmd/pulsarctl
+    binary: pulsarctl
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/agomez/pulsar/internal/version.Version={{ .Version }}
+      - -X github.com/agomez/pulsar/internal/version.GitCommit={{ .ShortCommit }}
+      - -X github.com/agomez/pulsar/internal/version.BuildDate={{ .Date }}
+
+archives:
+  - id: pulsar
+    ids: [pulsar]
+    name_template: "pulsar_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - README.md
+      - ROADMAP.md
+      - deploy/systemd/*
+
+  - id: pulsarctl
+    ids: [pulsarctl]
+    name_template: "pulsarctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Security
+      regexp: '^.*?(security|fix\(security\))'
+      order: 0
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?!?:'
+      order: 1
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))?!?:'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^docs(\(.+\))?:'
+      - '^ci(\(.+\))?:'
+
+release:
+  github:
+    owner: mofotech
+    name: pulsar
+  # Tags like v1.2.0-rc.1 are published as pre-releases.
+  prerelease: auto
+  footer: |
+    **Container images** (built by the same workflow):
+    - `ghcr.io/mofotech/pulsar:{{ .Version }}` — controller + agents (linux/amd64)
+    - `ghcr.io/mofotech/pulsar-web:{{ .Version }}` — web UI (linux/amd64, linux/arm64)

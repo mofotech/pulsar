@@ -63,7 +63,8 @@ make pulsarctl      # Compile CLI → bin/pulsarctl
 make proto          # Regenerate protobuf stubs from internal/proto/*.proto
 
 # Test & Lint
-make test           # Unit tests with race detector
+make test           # Unit tests with race detector (integration tests skip)
+make test-integration  # + integration tests against throwaway Postgres/etcd (docker-compose.test.yml)
 make lint           # golangci-lint
 make test-remote    # Run tests on test host (TEST_HOST, set in gitignored local.mk)
 
@@ -82,6 +83,10 @@ make logs
 ```
 
 Run a single test: `go test -run TestName ./internal/controller/compute/`
+
+Identity/auth code talks to Postgres and etcd directly, so it is tested with integration tests (`internal/testutil`: fresh migrated DB per test). Any schema change must go in a migration under `internal/store/postgres/migrations/` *and* in both initdb scripts (`deploy/docker/initdb/01_schema.sql`, Helm `configmap-initdb.yaml`); `TestInitdbAndMigrationsProduceSameSchema` fails on drift.
+
+Releases: push a `vX.Y.Z` tag → `.github/workflows/release.yml` (GoReleaser binaries + GHCR images).
 
 ## Architecture
 

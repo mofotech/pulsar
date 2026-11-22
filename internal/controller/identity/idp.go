@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 
@@ -226,6 +229,10 @@ func (h *Handler) CreateIDP(w http.ResponseWriter, r *http.Request) {
 	if req.DefaultRole == "" {
 		req.DefaultRole = "member"
 	}
+	if !allowedDefaultRoles[req.DefaultRole] {
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", errInvalidDefaultRole.Error(), reqID)
+		return
+	}
 	autoProvision := true
 	if req.AutoProvision != nil {
 		autoProvision = *req.AutoProvision
@@ -248,6 +255,11 @@ func (h *Handler) CreateIDP(w http.ResponseWriter, r *http.Request) {
 		&p.Scopes, &p.ClaimEmail, &p.ClaimName, &p.AutoProvision, &p.DefaultRole,
 		&p.DomainHint, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
 	)
+	if isUniqueViolation(err) {
+		api.WriteError(w, http.StatusConflict, "CONFLICT",
+			"an identity provider with this name already exists; choose a different name", reqID)
+		return
+	}
 	if err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
 		return
@@ -285,68 +297,55 @@ func (h *Handler) UpdateIDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.DefaultRole != "" && !allowedDefaultRoles[req.DefaultRole] {
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", errInvalidDefaultRole.Error(), reqID)
+		return
+	}
+
 	ctx := r.Context()
 	var p IdentityProvider
 
-	// Build update with COALESCE so only non-empty fields are changed.
-	// client_secret is only updated when explicitly provided.
-	secretExpr := "client_secret"
-	if req.ClientSecret != "" {
-		secretExpr = fmt.Sprintf("'%s'", strings.ReplaceAll(req.ClientSecret, "'", "''"))
-	}
-	autoProvision := "auto_provision"
-	if req.AutoProvision != nil {
-		if *req.AutoProvision {
-			autoProvision = "true"
-		} else {
-			autoProvision = "false"
-		}
-	}
-	enabled := "enabled"
-	if req.Enabled != nil {
-		if *req.Enabled {
-			enabled = "true"
-		} else {
-			enabled = "false"
-		}
-	}
-
-	// slug tracks the name — update it whenever name changes.
-	slugExpr := "slug"
+	// Only non-empty / non-nil fields are changed. Every value is a bind
+	// parameter; slug tracks the name whenever the name changes.
+	slug := ""
 	if req.Name != "" {
-		slugExpr = fmt.Sprintf("'%s'", strings.ReplaceAll(slugify(req.Name), "'", "''"))
+		slug = slugify(req.Name)
 	}
-
-	query := fmt.Sprintf(`
+	const query = `
 		UPDATE identity_providers SET
 		  name           = COALESCE(NULLIF($1,''), name),
-		  slug           = %s,
-		  issuer_url     = COALESCE(NULLIF($2,''), issuer_url),
-		  client_id      = COALESCE(NULLIF($3,''), client_id),
-		  client_secret  = %s,
-		  scopes         = COALESCE(NULLIF($4,''), scopes),
-		  claim_email    = COALESCE(NULLIF($5,''), claim_email),
-		  claim_name     = COALESCE(NULLIF($6,''), claim_name),
-		  auto_provision = %s,
-		  default_role   = COALESCE(NULLIF($7,''), default_role),
-		  domain_hint    = COALESCE(NULLIF($8,''), domain_hint),
-		  enabled        = %s,
+		  slug           = COALESCE(NULLIF($2,''), slug),
+		  issuer_url     = COALESCE(NULLIF($3,''), issuer_url),
+		  client_id      = COALESCE(NULLIF($4,''), client_id),
+		  client_secret  = COALESCE(NULLIF($5,''), client_secret),
+		  scopes         = COALESCE(NULLIF($6,''), scopes),
+		  claim_email    = COALESCE(NULLIF($7,''), claim_email),
+		  claim_name     = COALESCE(NULLIF($8,''), claim_name),
+		  auto_provision = COALESCE($9::boolean, auto_provision),
+		  default_role   = COALESCE(NULLIF($10,''), default_role),
+		  domain_hint    = COALESCE(NULLIF($11,''), domain_hint),
+		  enabled        = COALESCE($12::boolean, enabled),
 		  updated_at     = now()
-		WHERE id = $9 AND org_id = $10
+		WHERE id = $13 AND org_id = $14
 		RETURNING id, org_id, name, slug, provider_type, issuer_url, client_id,
 		          scopes, claim_email, claim_name, auto_provision, default_role,
-		          COALESCE(domain_hint,''), enabled, created_at, updated_at`,
-		slugExpr, secretExpr, autoProvision, enabled)
+		          COALESCE(domain_hint,''), enabled, created_at, updated_at`
 
 	err := h.db.Pool().QueryRow(ctx, query,
-		req.Name, req.IssuerURL, req.ClientID,
-		req.Scopes, req.ClaimEmail, req.ClaimName, req.DefaultRole, req.DomainHint,
+		req.Name, slug, req.IssuerURL, req.ClientID, req.ClientSecret,
+		req.Scopes, req.ClaimEmail, req.ClaimName, req.AutoProvision,
+		req.DefaultRole, req.DomainHint, req.Enabled,
 		idpID, orgID,
 	).Scan(
 		&p.ID, &p.OrgID, &p.Name, &p.Slug, &p.ProviderType, &p.IssuerURL, &p.ClientID,
 		&p.Scopes, &p.ClaimEmail, &p.ClaimName, &p.AutoProvision, &p.DefaultRole,
 		&p.DomainHint, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
 	)
+	if isUniqueViolation(err) {
+		api.WriteError(w, http.StatusConflict, "CONFLICT",
+			"an identity provider with this name already exists; choose a different name", reqID)
+		return
+	}
 	if err != nil {
 		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", "identity provider not found", reqID)
 		return
@@ -404,6 +403,16 @@ func (h *Handler) OIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The callback hands the freshly minted JWT to cli_redirect, so it must
+	// be the CLI's loopback listener — never an arbitrary URL.
+	cliRedirect := r.URL.Query().Get("cli_redirect")
+	if cliRedirect != "" {
+		if err := validateCLIRedirect(cliRedirect); err != nil {
+			http.Error(w, "invalid cli_redirect: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	cfg, err := h.oidcConfig(ctx, idpSlug, clientID, clientSecret, issuerURL, scopes)
 	if err != nil {
 		http.Error(w, "OIDC discovery failed: "+err.Error(), http.StatusBadGateway)
@@ -422,7 +431,7 @@ func (h *Handler) OIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	statePayload := oidcState{
 		Nonce:       nonce,
-		CLIRedirect: r.URL.Query().Get("cli_redirect"),
+		CLIRedirect: cliRedirect,
 	}
 	stateJSON, err := json.Marshal(statePayload)
 	if err != nil {
@@ -475,6 +484,12 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	_ = h.store.Delete(ctx, oidcStateKeyPrefix+stateParsed.Nonce)
 
 	cliRedirect := stateParsed.CLIRedirect
+	if cliRedirect != "" {
+		if err := validateCLIRedirect(cliRedirect); err != nil {
+			http.Error(w, "invalid state parameter", http.StatusBadRequest)
+			return
+		}
+	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -527,77 +542,13 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up existing federated identity link.
-	var userID, projectID, userRole, userOrgRole string
-	err = h.db.Pool().QueryRow(ctx,
-		`SELECT u.id, u.project_id, u.role, u.org_role
-		   FROM federated_identities fi
-		   JOIN users u ON u.id = fi.user_id
-		  WHERE fi.idp_id = $1 AND fi.external_sub = $2`, idpID, externalSub,
-	).Scan(&userID, &projectID, &userRole, &userOrgRole)
-
-	if err != nil {
-		// No existing link — auto-provision if allowed.
-		if !autoProvision {
-			http.Error(w, "no account found for this identity; contact your org admin", http.StatusForbidden)
-			return
-		}
-		if externalEmail == "" {
-			http.Error(w, "id_token missing email claim; cannot auto-provision", http.StatusBadGateway)
-			return
-		}
-
-		// Find or create a default project in this org for the new user.
-		var defaultProjectID string
-		if err := h.db.Pool().QueryRow(ctx,
-			`SELECT id FROM projects WHERE org_id = $1 ORDER BY created_at LIMIT 1`, orgID,
-		).Scan(&defaultProjectID); err != nil {
-			http.Error(w, "org has no projects; cannot auto-provision user", http.StatusInternalServerError)
-			return
-		}
-
-		// Create the user.
-		userID = id.New()
-		userRole = defaultRole
-		userOrgRole = defaultRole
-		if err := h.db.Pool().QueryRow(ctx,
-			`INSERT INTO users (id, org_id, email, password_hash, role, org_role, project_id)
-			 VALUES ($1, $2, $3, '', $4, $5, $6)
-			 ON CONFLICT (email) DO UPDATE SET org_id = EXCLUDED.org_id
-			 RETURNING id, project_id, role, org_role`,
-			userID, orgID, externalEmail, userRole, userOrgRole, defaultProjectID,
-		).Scan(&userID, &projectID, &userRole, &userOrgRole); err != nil {
-			http.Error(w, "failed to provision user: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// Seed project membership.
-		if _, err := h.db.Pool().Exec(ctx,
-			`INSERT INTO project_members (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-			projectID, userID,
-		); err != nil {
-			h.log.Error("failed to seed project_members for federated user", zap.Error(err))
-		}
-
-		// Create the federated identity link.
-		if _, err := h.db.Pool().Exec(ctx,
-			`INSERT INTO federated_identities (id, user_id, idp_id, external_sub, external_email, last_login_at)
-			 VALUES ($1, $2, $3, $4, $5, now())`,
-			id.New(), userID, idpID, externalSub, externalEmail,
-		); err != nil {
-			h.log.Error("failed to create federated identity link", zap.Error(err))
-		}
-
-		_ = externalName // used for display purposes in future
-	} else {
-		// Existing user — update last_login_at.
-		if _, err := h.db.Pool().Exec(ctx,
-			`UPDATE federated_identities SET last_login_at = now()
-			  WHERE idp_id = $1 AND external_sub = $2`, idpID, externalSub,
-		); err != nil {
-			h.log.Error("failed to update last_login_at", zap.Error(err))
-		}
+	userID, projectID, userRole, userOrgRole, status, msg := h.resolveFederatedUser(
+		ctx, idpID, orgID, externalSub, externalEmail, autoProvision, defaultRole)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
 	}
+	_ = externalName // used for display purposes in future
 
 	// Issue a Pulsar JWT.
 	email := externalEmail
@@ -640,6 +591,143 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("/auth/callback?token=%s&expires_at=%s",
 			signed, expiry.UTC().Format(time.RFC3339)),
 		http.StatusFound)
+}
+
+// resolveFederatedUser maps an IDP identity to a local user, linking or
+// auto-provisioning as allowed. On failure it returns a non-zero HTTP status
+// and message. Security rules:
+//
+//   - An existing federated link always wins.
+//   - An unlinked identity whose email matches an existing account is linked
+//     only if that account is in the IDP's own org and is not a platform-level
+//     admin. Otherwise any org admin could configure an IDP that asserts
+//     someone else's email and log in as them.
+//   - The user's org is never changed, and auto-provisioned users get
+//     role=member and an org_role limited to member/org_admin.
+func (h *Handler) resolveFederatedUser(
+	ctx context.Context, idpID, idpOrgID, externalSub, externalEmail string,
+	autoProvision bool, defaultRole string,
+) (userID, projectID, role, orgRole string, status int, msg string) {
+	err := h.db.Pool().QueryRow(ctx,
+		`SELECT u.id, COALESCE(u.project_id::text, ''), u.role, u.org_role
+		   FROM federated_identities fi
+		   JOIN users u ON u.id = fi.user_id
+		  WHERE fi.idp_id = $1 AND fi.external_sub = $2`, idpID, externalSub,
+	).Scan(&userID, &projectID, &role, &orgRole)
+	if err == nil {
+		if _, err := h.db.Pool().Exec(ctx,
+			`UPDATE federated_identities SET last_login_at = now()
+			  WHERE idp_id = $1 AND external_sub = $2`, idpID, externalSub,
+		); err != nil {
+			h.log.Error("failed to update last_login_at", zap.Error(err))
+		}
+		return userID, projectID, role, orgRole, 0, ""
+	}
+
+	if !autoProvision {
+		return "", "", "", "", http.StatusForbidden, "no account found for this identity; contact your org admin"
+	}
+	if externalEmail == "" {
+		return "", "", "", "", http.StatusBadGateway, "id_token missing email claim; cannot auto-provision"
+	}
+
+	// An account with this email already exists but is not linked to this IDP.
+	var existingOrgID string
+	err = h.db.Pool().QueryRow(ctx,
+		`SELECT id, org_id::text, COALESCE(project_id::text, ''), role, org_role
+		   FROM users WHERE email = $1`, externalEmail,
+	).Scan(&userID, &existingOrgID, &projectID, &role, &orgRole)
+	if err == nil {
+		if existingOrgID != idpOrgID || role == "admin" || orgRole == "platform_admin" {
+			h.log.Warn("refusing to link SSO identity to existing account",
+				zap.String("idp_id", idpID), zap.String("user_id", userID),
+				zap.Bool("cross_org", existingOrgID != idpOrgID))
+			return "", "", "", "", http.StatusForbidden,
+				"an account with this email already exists; ask an administrator to link it"
+		}
+		if _, err := h.db.Pool().Exec(ctx,
+			`INSERT INTO federated_identities (id, user_id, idp_id, external_sub, external_email, last_login_at)
+			 VALUES ($1, $2, $3, $4, $5, now())`,
+			id.New(), userID, idpID, externalSub, externalEmail,
+		); err != nil {
+			return "", "", "", "", http.StatusInternalServerError, "failed to link identity"
+		}
+		return userID, projectID, role, orgRole, 0, ""
+	}
+
+	// New user: home project is the org's first project.
+	if err := h.db.Pool().QueryRow(ctx,
+		`SELECT id FROM projects WHERE org_id = $1 ORDER BY created_at LIMIT 1`, idpOrgID,
+	).Scan(&projectID); err != nil {
+		return "", "", "", "", http.StatusInternalServerError, "org has no projects; cannot auto-provision user"
+	}
+	role = "member"
+	orgRole = defaultRole
+	if !allowedDefaultRoles[orgRole] {
+		// Rows written before default_role was validated may hold anything.
+		h.log.Warn("ignoring invalid IDP default_role", zap.String("idp_id", idpID), zap.String("default_role", defaultRole))
+		orgRole = "member"
+	}
+	userID = id.New()
+	if _, err := h.db.Pool().Exec(ctx,
+		`INSERT INTO users (id, org_id, email, password_hash, role, org_role, project_id)
+		 VALUES ($1, $2, $3, '', $4, $5, $6)`,
+		userID, idpOrgID, externalEmail, role, orgRole, projectID,
+	); err != nil {
+		return "", "", "", "", http.StatusInternalServerError, "failed to provision user"
+	}
+	if _, err := h.db.Pool().Exec(ctx,
+		`INSERT INTO project_members (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		projectID, userID,
+	); err != nil {
+		h.log.Error("failed to seed project_members for federated user", zap.Error(err))
+	}
+	if _, err := h.db.Pool().Exec(ctx,
+		`INSERT INTO federated_identities (id, user_id, idp_id, external_sub, external_email, last_login_at)
+		 VALUES ($1, $2, $3, $4, $5, now())`,
+		id.New(), userID, idpID, externalSub, externalEmail,
+	); err != nil {
+		h.log.Error("failed to create federated identity link", zap.Error(err))
+	}
+	return userID, projectID, role, orgRole, 0, ""
+}
+
+// isUniqueViolation reports a Postgres unique_violation (23505), e.g. a slug
+// that another org's IDP already uses.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// allowedDefaultRoles are the org_role values an IDP may grant to the users it
+// auto-provisions. platform_admin and the legacy role 'admin' are never
+// grantable through an IDP an org admin controls.
+var allowedDefaultRoles = map[string]bool{"member": true, "org_admin": true}
+
+var errInvalidDefaultRole = errors.New("default_role must be 'member' or 'org_admin'")
+
+// validateCLIRedirect accepts only http URLs on a loopback host with an
+// explicit port — the shape of pulsarctl's local callback listener.
+func validateCLIRedirect(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("not a valid URL")
+	}
+	if u.Scheme != "http" {
+		return errors.New("must use http")
+	}
+	if u.User != nil {
+		return errors.New("must not contain credentials")
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+	default:
+		return errors.New("must point to a loopback address (127.0.0.1, localhost or ::1)")
+	}
+	if u.Port() == "" {
+		return errors.New("must include a port")
+	}
+	return nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

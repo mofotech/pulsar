@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS identity_providers (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (org_id, name),
-    UNIQUE (org_id, slug)
+    UNIQUE (slug)  -- global: OIDC routes resolve IDPs by slug alone
 );
 
 CREATE INDEX IF NOT EXISTS identity_providers_org_id_idx ON identity_providers(org_id);

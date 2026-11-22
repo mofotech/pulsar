@@ -105,11 +105,10 @@ func (db *DB) Migrate(ctx context.Context, log *zap.Logger) error {
 			_ = tx.Rollback(ctx)
 
 			// If the database was bootstrapped via initdb the objects already
-			// exist.  Treat duplicate_table (42P07) and duplicate_object (42710)
-			// as "already applied" so we simply record the version and move on.
+			// exist. Treat "already exists" errors as "already applied" so we
+			// simply record the version and move on.
 			var pgErr *pgconn.PgError
-			if errors.As(execErr, &pgErr) &&
-				(pgErr.Code == "42P07" || pgErr.Code == "42710") && !tableExists {
+			if errors.As(execErr, &pgErr) && alreadyExistsCodes[pgErr.Code] && !tableExists {
 				log.Warn("migration objects already exist (initdb bootstrap), marking as applied",
 					zap.String("version", version))
 				if _, err := db.pool.Exec(ctx,
@@ -161,4 +160,14 @@ func extractUpSection(content string) string {
 		rest = rest[:end]
 	}
 	return rest
+}
+
+// alreadyExistsCodes are the SQLSTATEs an initdb-bootstrapped database raises
+// when a migration re-creates something the initdb script already made.
+// duplicate_column was missing, so migration 004 (ALTER TABLE ... ADD COLUMN)
+// aborted controller start-up on every fresh Docker/Helm install.
+var alreadyExistsCodes = map[string]bool{
+	"42P07": true, // duplicate_table
+	"42710": true, // duplicate_object
+	"42701": true, // duplicate_column
 }

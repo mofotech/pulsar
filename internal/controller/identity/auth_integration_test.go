@@ -1,0 +1,233 @@
+package identity
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/agomez/pulsar/internal/testutil"
+)
+
+// ── Login (POST /v1/auth/tokens) ────────────────────────────────────────────
+
+func TestLoginIssuesSignedTokenWithClaims(t *testing.T) {
+	e := newEnv(t)
+	pid := e.createProject(testutil.DefaultOrgID, "p1")
+	uid := e.createUser("alice@example.test", userOpts{projectID: pid, orgRole: "org_admin"})
+
+	c := claims(t, e.mustLogin("alice@example.test"))
+
+	for k, want := range map[string]any{
+		"sub": uid, "email": "alice@example.test", "project_id": pid,
+		"role": "member", "org_id": testutil.DefaultOrgID, "org_role": "org_admin",
+	} {
+		if c[k] != want {
+			t.Errorf("claim %s = %v, want %v", k, c[k], want)
+		}
+	}
+	if jti, _ := c["jti"].(string); jti == "" {
+		t.Error("missing jti (needed for revocation)")
+	}
+	exp, _ := c["exp"].(float64)
+	if d := time.Until(time.Unix(int64(exp), 0)); d < 59*time.Minute || d > 61*time.Minute {
+		t.Errorf("exp is %v from now, want ~1h (configured expiry)", d)
+	}
+}
+
+func TestLoginRejectsBadCredentialsUniformly(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("bob@example.test", userOpts{})
+
+	wrongPw := e.login("bob@example.test", "nope")
+	unknown := e.login("nobody@example.test", "nope")
+	expectStatus(t, wrongPw, http.StatusUnauthorized)
+	expectStatus(t, unknown, http.StatusUnauthorized)
+	// Same body for both, so the endpoint doesn't reveal which emails exist.
+	strip := func(b []byte) string { return string(b[:strings.Index(string(b), `"meta"`)]) }
+	if strip(wrongPw.body) != strip(unknown.body) {
+		t.Errorf("responses differ:\n%s\n%s", wrongPw.body, unknown.body)
+	}
+}
+
+func TestLoginRejectsLegacyDevNoHash(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("legacy@example.test", userOpts{passwordHash: "dev-nohash"})
+	expectStatus(t, e.login("legacy@example.test", "anything"), http.StatusUnauthorized)
+	expectStatus(t, e.login("legacy@example.test", ""), http.StatusUnauthorized)
+}
+
+func TestLoginRejectsSSOOnlyUserWithEmptyPassword(t *testing.T) {
+	e := newEnv(t)
+	// Auto-provisioned SSO users are stored with an empty password_hash.
+	e.exec(`INSERT INTO users (id, org_id, email, password_hash) VALUES (gen_random_uuid(), $1, 'sso@example.test', '')`,
+		testutil.DefaultOrgID)
+	expectStatus(t, e.login("sso@example.test", ""), http.StatusUnauthorized)
+}
+
+func TestLoginAssignsFirstOrgProjectWhenUserHasNone(t *testing.T) {
+	e := newEnv(t)
+	org := e.createOrg("acme")
+	first := e.createProject(org, "first")
+	e.createProject(org, "second")
+	uid := e.createUser("new@example.test", userOpts{orgID: org})
+
+	c := claims(t, e.mustLogin("new@example.test"))
+	if c["project_id"] != first {
+		t.Fatalf("project_id = %v, want first org project %s", c["project_id"], first)
+	}
+	var home string
+	var members int
+	ctx := context.Background()
+	_ = e.db.Pool().QueryRow(ctx, `SELECT project_id::text FROM users WHERE id = $1`, uid).Scan(&home)
+	_ = e.db.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM project_members WHERE user_id = $1 AND project_id = $2`, uid, first).Scan(&members)
+	if home != first || members != 1 {
+		t.Fatalf("home project = %q, memberships = %d; want %s persisted with membership", home, members, first)
+	}
+}
+
+// ── JWT revocation (DELETE /v1/auth/tokens) ─────────────────────────────────
+
+func TestLogoutRevokesTokenEverywhere(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("carol@example.test", userOpts{})
+	tok := e.mustLogin("carol@example.test")
+	other := e.mustLogin("carol@example.test") // second session
+
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", tok, nil), http.StatusOK)
+	expectStatus(t, e.do(http.MethodDelete, "/v1/auth/tokens", tok, nil), http.StatusNoContent)
+
+	r := e.do(http.MethodGet, "/v1/auth/tokens/personal", tok, nil)
+	expectStatus(t, r, http.StatusUnauthorized)
+	if !strings.Contains(string(r.body), "revoked") {
+		t.Errorf("want 'revoked' error, got %s", r.body)
+	}
+	// Revocation is per-token (jti), not per-user.
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", other, nil), http.StatusOK)
+}
+
+func TestLogoutWithInvalidTokenIsNoop(t *testing.T) {
+	e := newEnv(t)
+	expectStatus(t, e.do(http.MethodDelete, "/v1/auth/tokens", "not-a-jwt", nil), http.StatusNoContent)
+	expectStatus(t, e.do(http.MethodDelete, "/v1/auth/tokens", "", nil), http.StatusNoContent)
+}
+
+// ── Personal access tokens ──────────────────────────────────────────────────
+
+func createPAT(t *testing.T, e *env, jwtTok, name string, expires *time.Time) createPATResponse {
+	t.Helper()
+	body := map[string]any{"name": name}
+	if expires != nil {
+		body["expires_at"] = expires.UTC().Format(time.RFC3339)
+	}
+	r := e.do(http.MethodPost, "/v1/auth/tokens/personal", jwtTok, body)
+	expectStatus(t, r, http.StatusCreated)
+	var pat createPATResponse
+	r.json(t, &pat)
+	return pat
+}
+
+func TestPATLifecycle(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("dave@example.test", userOpts{})
+	jwtTok := e.mustLogin("dave@example.test")
+
+	pat := createPAT(t, e, jwtTok, "ci", nil)
+	if !strings.HasPrefix(pat.Token, "pat_") || len(pat.Token) < 40 {
+		t.Fatalf("unexpected token format %q", pat.Token)
+	}
+
+	// The raw value is shown once; listings never include it.
+	list := e.do(http.MethodGet, "/v1/auth/tokens/personal", jwtTok, nil)
+	expectStatus(t, list, http.StatusOK)
+	if strings.Contains(string(list.body), pat.Token) || strings.Contains(string(list.body), `"token"`) {
+		t.Fatalf("listing leaks token value: %s", list.body)
+	}
+	// Only the bcrypt hash is stored.
+	var stored string
+	_ = e.db.Pool().QueryRow(context.Background(),
+		`SELECT token_hash FROM personal_access_tokens WHERE id = $1`, pat.ID).Scan(&stored)
+	if stored == pat.Token || !strings.HasPrefix(stored, "$2") {
+		t.Fatalf("token stored in a non-bcrypt form: %q", stored)
+	}
+
+	// The PAT authenticates on its own…
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", pat.Token, nil), http.StatusOK)
+	// …and stops working once deleted.
+	expectStatus(t, e.do(http.MethodDelete, "/v1/auth/tokens/personal/"+pat.ID, jwtTok, nil), http.StatusNoContent)
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", pat.Token, nil), http.StatusUnauthorized)
+}
+
+func TestPATRejectedWhenExpiredOrForged(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("erin@example.test", userOpts{})
+	jwtTok := e.mustLogin("erin@example.test")
+
+	past := time.Now().Add(-time.Minute)
+	expired := createPAT(t, e, jwtTok, "old", &past)
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", expired.Token, nil), http.StatusUnauthorized)
+
+	valid := createPAT(t, e, jwtTok, "new", nil)
+	forged := valid.Token[:len(valid.Token)-2] + "xx"
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", forged, nil), http.StatusUnauthorized)
+}
+
+func TestPATCannotBeDeletedByAnotherUser(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("owner@example.test", userOpts{})
+	e.createUser("other@example.test", userOpts{})
+	pat := createPAT(t, e, e.mustLogin("owner@example.test"), "mine", nil)
+
+	r := e.do(http.MethodDelete, "/v1/auth/tokens/personal/"+pat.ID, e.mustLogin("other@example.test"), nil)
+	expectStatus(t, r, http.StatusNotFound)
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", pat.Token, nil), http.StatusOK)
+}
+
+func TestPATNameRequired(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("frank@example.test", userOpts{})
+	r := e.do(http.MethodPost, "/v1/auth/tokens/personal", e.mustLogin("frank@example.test"), map[string]string{})
+	expectStatus(t, r, http.StatusBadRequest)
+}
+
+// ── User creation authorisation (POST /v1/users) ────────────────────────────
+
+func TestCreateUserAuthorization(t *testing.T) {
+	e := newEnv(t)
+	orgA := e.createOrg("org-a")
+	orgB := e.createOrg("org-b")
+	projA := e.createProject(orgA, "a1")
+	projB := e.createProject(orgB, "b1")
+	e.createUser("member@a.test", userOpts{orgID: orgA, projectID: projA})
+	e.createUser("admin@a.test", userOpts{orgID: orgA, projectID: projA, orgRole: "org_admin"})
+	member := e.mustLogin("member@a.test")
+	orgAdmin := e.mustLogin("admin@a.test")
+
+	t.Run("plain member cannot create users", func(t *testing.T) {
+		r := e.do(http.MethodPost, "/v1/users", member, map[string]string{"email": "x1@a.test", "password": "pw"})
+		expectStatus(t, r, http.StatusForbidden)
+	})
+	t.Run("org admin creates member in own org", func(t *testing.T) {
+		r := e.do(http.MethodPost, "/v1/users", orgAdmin,
+			map[string]string{"email": "x2@a.test", "password": "pw", "project_id": projA})
+		expectStatus(t, r, http.StatusCreated)
+		expectStatus(t, e.login("x2@a.test", "pw"), http.StatusCreated)
+	})
+	t.Run("org admin cannot create users in another org", func(t *testing.T) {
+		r := e.do(http.MethodPost, "/v1/users", orgAdmin,
+			map[string]string{"email": "x3@a.test", "password": "pw", "org_id": orgB})
+		expectStatus(t, r, http.StatusForbidden)
+	})
+	t.Run("org admin cannot seed membership in another org's project", func(t *testing.T) {
+		r := e.do(http.MethodPost, "/v1/users", orgAdmin,
+			map[string]string{"email": "x4@a.test", "password": "pw", "project_id": projB})
+		expectStatus(t, r, http.StatusBadRequest)
+	})
+	t.Run("org admin cannot mint admins", func(t *testing.T) {
+		expectStatus(t, e.do(http.MethodPost, "/v1/users", orgAdmin,
+			map[string]string{"email": "x5@a.test", "role": "admin"}), http.StatusForbidden)
+		expectStatus(t, e.do(http.MethodPost, "/v1/users", orgAdmin,
+			map[string]string{"email": "x6@a.test", "org_role": "org_admin"}), http.StatusForbidden)
+	})
+}

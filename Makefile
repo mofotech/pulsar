@@ -19,7 +19,8 @@ TEST_DIR   ?= /home/ubuntu/pulsar
         up up-local down logs ps \
         docker docker-web docker-local docker-remote migrate-up migrate-down tidy \
         web-install web-build web-dev web-lint build-full \
-        promote-admin roadmap-pdf helm-lint check-test-host
+        promote-admin roadmap-pdf helm-lint check-test-host \
+        test-deps-up test-deps-down test-integration release-snapshot
 
 ## Build the single binary
 build:
@@ -202,3 +203,20 @@ helm-lint:
 ## Fail fast when a remote target runs without TEST_HOST configured.
 check-test-host:
 	@test -n "$(TEST_HOST)" || (echo "TEST_HOST is not set. Copy local.mk.example to local.mk and set it, or pass TEST_HOST=user@host." && exit 1)
+
+## Integration tests against throwaway Postgres + etcd (ports 55432 / 52379).
+## The containers keep running between runs; stop them with make test-deps-down.
+TEST_COMPOSE := docker compose -f deploy/docker/docker-compose.test.yml
+TEST_ENV     := PULSAR_TEST_PG_DSN=postgres://pulsar:pulsar-test@127.0.0.1:55432/pulsar?sslmode=disable \
+                PULSAR_TEST_ETCD=127.0.0.1:52379
+test-deps-up:
+	$(TEST_COMPOSE) up -d --wait
+test-deps-down:
+	$(TEST_COMPOSE) down -v
+test-integration: test-deps-up
+	$(TEST_ENV) go test ./... -race -count=1
+
+## Local dry run of the release build (needs goreleaser v2: brew install goreleaser).
+## Real releases are built by .github/workflows/release.yml when a vX.Y.Z tag is pushed.
+release-snapshot:
+	goreleaser release --snapshot --clean
