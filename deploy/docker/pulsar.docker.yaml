@@ -4,10 +4,11 @@ controller:
   etcd:
     endpoints:
       - "etcd:2379"
-  postgres:
-    dsn: "postgres://pulsar:pulsar@postgres/pulsar?sslmode=disable"
+  # Secrets are NOT stored here. docker-compose.yml injects them from
+  # deploy/docker/.env (copy .env.example):
+  #   PULSAR_CONTROLLER_POSTGRES_DSN  → controller.postgres.dsn
+  #   PULSAR_CONTROLLER_JWT_SECRET    → controller.jwt.secret
   jwt:
-    secret: "pulsar-dev-change-in-production"
     expiry: "24h"
   image_store_dir: "/var/lib/pulsar/image-store"
   # public_url must be an IP/FQDN reachable by ALL compute nodes, not the
@@ -18,7 +19,7 @@ controller:
   # oidc_base_url is the externally-reachable address used in OAuth2 redirect_uris.
   # Must match the "Valid redirect URIs" you registered in your IDP (Keycloak, etc.).
   # Set to the address the *browser* uses to reach the UI.
-  oidc_base_url: "http://10.11.3.190:3000"
+  # Injected from PULSAR_OIDC_BASE_URL in deploy/docker/.env.
 
 agent:
   controller_grpc: "controller:9090"

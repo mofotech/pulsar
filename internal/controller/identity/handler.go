@@ -76,13 +76,11 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify bcrypt hash. Legacy dev rows stored "dev-nohash" — accept any
-	// password for those so existing dev environments keep working.
-	if passwordHash != "dev-nohash" { //nolint:gosec // dev sentinel value, not a real credential
-		if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-			api.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials", middleware.GetReqID(ctx))
-			return
-		}
+	// Verify bcrypt hash. Any row without a valid bcrypt hash (including the
+	// old "dev-nohash" sentinel) fails closed; reset it via PATCH /users/{id}.
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		api.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials", middleware.GetReqID(ctx))
+		return
 	}
 
 	// If the user has no home project, auto-assign the first project in their org

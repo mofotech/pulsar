@@ -95,7 +95,8 @@ controller:
   postgres:
     dsn: "postgres://pulsar:pulsar@localhost/pulsar?sslmode=disable"
   jwt:
-    secret: "change-me"
+    # Or set PULSAR_CONTROLLER_JWT_SECRET. >= 32 bytes; placeholders are rejected.
+    secret: "<output of: openssl rand -hex 32>"
     expiry: "24h"
 
 agent:
@@ -122,7 +123,7 @@ logging:
 Every config key can be overridden with a `PULSAR_` environment variable (dots become underscores):
 
 ```bash
-PULSAR_CONTROLLER_JWT_SECRET=my-secret bin/pulsar controller
+PULSAR_CONTROLLER_JWT_SECRET=$(openssl rand -hex 32) bin/pulsar controller
 PULSAR_AGENT_CONTROLLER_GRPC=10.0.0.1:9090 bin/pulsar agent --pillar=compute
 ```
 
@@ -195,10 +196,9 @@ controller:
   listen_grpc: ":9090"
   etcd:
     endpoints: ["etcd:2379"]
-  postgres:
-    dsn: "postgres://pulsar:pulsar@postgres/pulsar?sslmode=disable"
+  # postgres.dsn and jwt.secret are injected by docker-compose.yml from
+  # deploy/docker/.env — copy deploy/docker/.env.example and fill it in.
   jwt:
-    secret: "pulsar-dev-change-in-production"
     expiry: "24h"
 
 agent:

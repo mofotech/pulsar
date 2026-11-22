@@ -8,6 +8,13 @@ web/dist/
 !web/dist/.gitkeep
 web/node_modules/
 
+# Stray CLI build at repo root (builds belong in bin/)
+/pulsarctl
+
+# Local secrets (see deploy/docker/.env.example)
+.env
+!.env.example
+
 # Editor / OS
 .DS_Store
 *.swp

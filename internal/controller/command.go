@@ -22,6 +22,9 @@ func NewCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("config: %w", err)
 			}
+			if err := cfg.Controller.Validate(); err != nil {
+				return fmt.Errorf("config: %w", err)
+			}
 
 			log, err := buildLogger(cfg.Logging)
 			if err != nil {

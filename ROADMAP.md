@@ -13,7 +13,7 @@ Legend: ✅ Done · 🔧 Partial / stubbed · ❌ Not started
 | Multi-tenancy (projects) | ✅ | Full CRUD, JWT scoped to project |
 | Users + roles | ✅ | Admin / member roles, per-project |
 | JWT authentication | ✅ | Issue, validate, revoke; includes `org_id`, `org_role`, `jti` claims |
-| Password hashing | ✅ | bcrypt at `CreateUser` and `CreateToken`; legacy `dev-nohash` rows still accepted |
+| Password hashing | ✅ | bcrypt at `CreateUser` and `CreateToken`; non-bcrypt rows (incl. legacy `dev-nohash`) are rejected |
 | Token revocation | ✅ | `DELETE /auth/tokens` writes JTI to etcd with TTL; `AuthMiddleware` checks deny-list on every request |
 | Admin RBAC enforcement | ✅ | `requireAdmin` helper; `UpdateProject`, `DeleteProject`, `UpdateUser` return 403 for non-admin callers |
 | `UpdateUser` (role + password) | ✅ | `PATCH /users/{id}` — change role or reset password (admin only) |
@@ -153,6 +153,7 @@ Legend: ✅ Done · 🔧 Partial / stubbed · ❌ Not started
 | Feature | Status | Notes |
 |---|---|---|
 | Single binary distribution | ✅ | `pulsar controller` / `pulsar agent --pillar=…` |
+| Secret hygiene | ✅ | Controller refuses empty, placeholder, or <32-byte JWT secrets; Docker secrets come from gitignored `deploy/docker/.env`; Helm requires `jwt.secret` |
 | Docker Compose deployment | ✅ | Full 6-container stack; health checks |
 | Standalone web frontend container | ✅ | `Dockerfile.web` + nginx (`deploy/docker/nginx.web.conf`) with Docker DNS resolver and WebSocket-aware `Connection` header; `make docker-web` |
 | CI (GitHub Actions) | ✅ | golangci-lint, `go test -race`, linux/amd64 builds of `pulsar` + `pulsarctl`, web typecheck + build; artifacts uploaded |

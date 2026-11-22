@@ -52,8 +52,9 @@ controller:
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
 jwt:
-  # Change this in production — used to sign all API tokens.
-  secret: "pulsar-change-in-production"
+  # Signs all API tokens. Required unless existingSecret is set; must be
+  # >= 32 bytes. Generate with: openssl rand -hex 32
+  secret: ""
   expiry: "24h"
   # Supply an existing Secret instead of creating one.
   existingSecret: ""

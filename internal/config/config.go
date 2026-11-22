@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -152,6 +154,19 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
+	// AutomaticEnv only applies to keys viper already knows about (from the
+	// config file or a default). Secrets are deliberately left out of config
+	// files, so bind their env vars explicitly or Unmarshal never sees them.
+	for _, key := range []string{
+		"controller.jwt.secret",
+		"controller.postgres.dsn",
+		"controller.oidc_base_url",
+	} {
+		if err := v.BindEnv(key); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return nil, err
@@ -163,4 +178,33 @@ func Load(cfgFile string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// MinJWTSecretLen is the minimum accepted JWT signing secret length (bytes).
+// 32 bytes matches the HS256 output size; `openssl rand -hex 32` yields 64.
+const MinJWTSecretLen = 32
+
+// knownDefaultSecrets are placeholder values that have shipped in this repo's
+// sample configs. Anyone can read them, so tokens signed with them are forgeable.
+var knownDefaultSecrets = map[string]bool{
+	"pulsar-dev-change-in-production": true,
+	"pulsar-change-in-production":     true,
+	"change-me":                       true,
+	"changeme":                        true,
+	"my-secret":                       true,
+	"secret":                          true,
+}
+
+// Validate checks controller settings that must be safe before serving traffic.
+func (c *ControllerConfig) Validate() error {
+	s := c.JWT.Secret
+	switch {
+	case s == "":
+		return errors.New("controller.jwt.secret is not set (set PULSAR_CONTROLLER_JWT_SECRET, e.g. `openssl rand -hex 32`)")
+	case knownDefaultSecrets[strings.ToLower(s)]:
+		return errors.New("controller.jwt.secret is a published placeholder value; generate a real one with `openssl rand -hex 32`")
+	case len(s) < MinJWTSecretLen:
+		return fmt.Errorf("controller.jwt.secret must be at least %d bytes (got %d); generate one with `openssl rand -hex 32`", MinJWTSecretLen, len(s))
+	}
+	return nil
 }
