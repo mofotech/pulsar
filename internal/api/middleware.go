@@ -258,6 +258,12 @@ func OrgIDFromContext(ctx context.Context) string {
 	return v
 }
 
+// IsPlatformAdmin reports whether the caller administers the whole platform
+// (legacy role 'admin' or org_role 'platform_admin').
+func IsPlatformAdmin(ctx context.Context) bool {
+	return RoleFromContext(ctx) == "admin" || OrgRoleFromContext(ctx) == "platform_admin"
+}
+
 // OrgRoleFromContext extracts the org_role claim injected by AuthMiddleware.
 // Returns 'platform_admin', 'org_admin', or 'member'.
 func OrgRoleFromContext(ctx context.Context) string {

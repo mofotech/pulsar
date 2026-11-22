@@ -23,6 +23,27 @@ type Image struct {
 	SizeBytes int64     `json:"size_bytes,omitempty"`
 	URL       string    `json:"url,omitempty"` // set for URL-registered images; for uploads this is the controller download URL
 	CreatedAt time.Time `json:"created_at"`
+	// ProjectID owns the image; empty for platform images.
+	ProjectID string `json:"project_id,omitempty"`
+	// Visibility is "public" (every project) or "private" (owning project
+	// only). Images created before ownership existed have neither field and
+	// are treated as public so nothing in use disappears.
+	Visibility string `json:"visibility"`
+}
+
+const (
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
+)
+
+// IsPublic reports whether every project may see and boot the image.
+func (img *Image) IsPublic() bool {
+	return img.Visibility == VisibilityPublic || (img.Visibility == "" && img.ProjectID == "")
+}
+
+// VisibleTo reports whether a project may see and boot the image.
+func (img *Image) VisibleTo(projectID string) bool {
+	return img.IsPublic() || (projectID != "" && img.ProjectID == projectID)
 }
 
 type Service struct {

@@ -52,8 +52,8 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | Instance lifecycle actions | ✅ | Start, stop, reboot, hard-reboot, console (VNC) |
 | Instance FSM | ✅ | pending → scheduling → building → active → stopped → deleted → error |
 | Instance error recovery | ✅ | Hard-reboot / rebuild from error state |
-| Flavors | ✅ | Full CRUD; determines vCPU / RAM / disk sizing |
-| Images | ✅ | Full CRUD; HTTP download with qcow2/raw/OCI format support |
+| Flavors | ✅ | Full CRUD (create/delete: platform admin only — flavors are shared and drive quota accounting); determines vCPU / RAM / disk sizing |
+| Images | ✅ | Full CRUD; HTTP download with qcow2/raw/OCI format support. Owned by a project: `private` (owning project only — listing, booting, volumes) or `public` (platform admins only); pre-existing images stay public |
 | cloud-init user data | ✅ | Seed ISO injected at boot |
 | SSH keypair injection | ✅ | Key names on CreateInstanceRequest; injected via cloud-init authorized_keys |
 | Security group selection at launch | ✅ | Specified in launch request; applied to instance ports |
@@ -104,7 +104,7 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | Volumes CRUD | ✅ | Create, list, get, delete |
 | Volume actions | ✅ | Attach, detach, extend |
 | Snapshots CRUD | ✅ | Create, list, get, delete |
-| Volume types | ✅ | CRUD; selects backend driver |
+| Volume types | ✅ | CRUD (create/delete: platform admin only); selects backend driver |
 | LVM backend | ✅ | Production-ready; thin-pool provisioning; `thin-provisioning-tools` in container image |
 | iSCSI attachment | ✅ | LVM volumes exported via iSCSI and attached to instances |
 | Volume agent affinity (`agent_id`) | ✅ | `agent_id` field on Volume tracks which storage node holds the LV; all operations (export, detach, extend, delete) route to the correct agent |

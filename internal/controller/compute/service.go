@@ -238,6 +238,11 @@ func (s *Service) CreateInstance(ctx context.Context, projectID, userID string, 
 		if err != nil {
 			return nil, fmt.Errorf("image not found: %w", err)
 		}
+		// Another project's private image must not be bootable (or even
+		// confirmed to exist).
+		if !image.VisibleTo(projectID) {
+			return nil, fmt.Errorf("image not found: image %s not found", req.ImageID)
+		}
 	}
 
 	ht := req.HypervisorType
