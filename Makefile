@@ -18,7 +18,7 @@ TEST_DIR   ?= /home/ubuntu/pulsar
         dev-up dev-down \
         up up-local down logs ps \
         docker docker-web docker-local docker-remote migrate-up migrate-down tidy \
-        web-install web-build web-dev web-lint build-full \
+        web-install web-build web-dev web-lint web-test build-full \
         promote-admin roadmap-pdf helm-lint check-test-host \
         test-deps-up test-deps-down test-integration release-snapshot
 
@@ -41,6 +41,10 @@ web-dev:
 ## Type-check the web UI
 web-lint:
 	cd web && npm run typecheck
+
+## Web UI tests (Vitest + Testing Library + MSW)
+web-test:
+	cd web && npm test
 
 ## Build Go binary with embedded UI
 build-full: web-build

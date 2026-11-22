@@ -333,6 +333,8 @@ export default function AccessTokensPage() {
           size="sm"
           variant="ghost"
           className="text-destructive hover:text-destructive"
+          aria-label={`Revoke ${row.name}`}
+          title={`Revoke ${row.name}`}
           onClick={() => setDeleteTarget(row)}
         >
           <Trash2 className="h-4 w-4" />

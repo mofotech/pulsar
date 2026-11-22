@@ -31,7 +31,10 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     headers,
   })
 
-  if (res.status === 401) {
+  // A 401 on an authenticated request means the session is gone (expired or
+  // revoked). Without a token (e.g. the login call itself) it's an ordinary
+  // error whose message — "invalid credentials" — is shown below.
+  if (res.status === 401 && token) {
     useAuthStore.getState().logout()
     throw new Error('Unauthorized — please log in again')
   }

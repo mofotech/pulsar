@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,11 @@ import { createToken } from '@/api/auth'
 import { lookupIdps } from '@/api/identity'
 import type { IdentityProvider } from '@/types/identity'
 
+// Messages for ?error= codes that other pages redirect here with.
+const REDIRECT_ERRORS: Record<string, string> = {
+  oidc_callback_missing_token: 'Single sign-on did not complete. Please try again or sign in with your password.',
+}
+
 // Derive the SSO authorize URL from the IDP slug.
 function ssoUrl(idp: IdentityProvider) {
   return `/v1/auth/oidc/${idp.slug}/authorize`
@@ -16,6 +21,7 @@ function ssoUrl(idp: IdentityProvider) {
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const login = useAuthStore((s) => s.login)
 
   // Step 1 — email entry; step 2 — password (+ optional SSO buttons)
@@ -24,7 +30,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [idps, setIdps] = useState<IdentityProvider[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(() => {
+    const code = searchParams.get('error')
+    return code ? (REDIRECT_ERRORS[code] ?? 'Sign-in failed. Please try again.') : null
+  })
 
   async function handleEmailNext(e: React.FormEvent) {
     e.preventDefault()
@@ -113,6 +122,7 @@ export default function LoginPage() {
             {step === 'email' ? (
               /* ── Step 1: email ── */
               <form onSubmit={handleEmailNext} className="space-y-4">
+                {error && <ErrorBox message={error} />}
                 <div className="space-y-1.5">
                   <Label htmlFor="email" className="text-xs font-medium text-muted-foreground">
                     Email address
@@ -181,12 +191,7 @@ export default function LoginPage() {
                     />
                   </div>
 
-                  {error && (
-                    <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2.5 text-xs text-destructive ring-1 ring-destructive/20">
-                      <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
-                      {error}
-                    </div>
-                  )}
+                  {error && <ErrorBox message={error} />}
 
                   <Button type="submit" className="mt-2 w-full" disabled={loading}>
                     {loading ? (
@@ -216,6 +221,18 @@ export default function LoginPage() {
           Pulsar Infrastructure Platform
         </p>
       </div>
+    </div>
+  )
+}
+
+function ErrorBox({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2.5 text-xs text-destructive ring-1 ring-destructive/20"
+    >
+      <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
+      {message}
     </div>
   )
 }

@@ -163,6 +163,7 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | Docker Compose deployment | ✅ | Full 6-container stack; health checks |
 | Standalone web frontend container | ✅ | `Dockerfile.web` + nginx (`deploy/docker/nginx.web.conf`) with Docker DNS resolver and WebSocket-aware `Connection` header; `make docker-web` |
 | CI (GitHub Actions) | ✅ | golangci-lint, `go test -race`, linux/amd64 builds of `pulsar` + `pulsarctl`, web typecheck + build; artifacts uploaded |
+| Web UI tests | ✅ | Vitest + Testing Library + MSW for API client, auth store, login/SSO callback, route guard, Access Tokens page; run in CI |
 | Integration tests | ✅ | Identity/auth/OIDC and tenant-isolation tests against real Postgres + etcd (`make test-integration`; service containers in CI); initdb ↔ migrations schema-drift test |
 | Tagged releases | ✅ | `vX.Y.Z` tag → GoReleaser binaries (pulsar linux amd64/arm64, pulsarctl linux/darwin/windows) + GHCR images; snapshot dry run in CI |
 | Prometheus metrics endpoint | ✅ | `:9091/metrics` on controller |

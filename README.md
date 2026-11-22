@@ -145,6 +145,9 @@ make test-remote
 
 # Run linter
 make lint
+
+# Web UI tests (Vitest + Testing Library; API mocked at the network layer with MSW)
+make web-test                # or: cd web && npm test / npm run test:watch
 ```
 
 Integration tests read `PULSAR_TEST_PG_DSN` / `PULSAR_TEST_ETCD` (set by `make test-integration`) and skip when they're unset. Each test gets a freshly migrated database. CI sets `PULSAR_TEST_REQUIRE=1`, so missing services fail instead of skip.
@@ -161,6 +164,7 @@ Test coverage includes:
 | `internal/controller/registry` | Agent record snapshots; concurrent heartbeat/list under `-race` |
 | `internal/controller/identity` | *(integration)* Login, JWT claims and revocation, PAT lifecycle/expiry/ownership, user-creation authz, OIDC authorize/callback against a fake IdP (state CSRF + replay, auto-provisioning, account linking, CLI loopback redirect, IDP role and slug rules) |
 | `internal/store/postgres` | *(integration)* initdb-bootstrapped and migrated databases end up with identical schemas |
+| `web/` | API client (auth/project headers, envelope, 401 handling), auth store and JWT decoding, login (SSO discovery, password, errors), OIDC callback, route guard, Access Tokens page (one-time reveal, expiry, revoke) |
 
 ---
 

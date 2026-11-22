@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth'
+import { decodeJwtPayload } from '@/lib/jwt'
 
 /**
  * OIDCCallbackPage
@@ -19,14 +20,7 @@ export default function OIDCCallbackPage() {
     const token = params.get('token')
     const expiresAt = params.get('expires_at')
     if (token && expiresAt) {
-      // Decode email from JWT payload.
-      let email = ''
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]))
-        email = payload.email ?? ''
-      } catch {
-        // ignore
-      }
+      const email = decodeJwtPayload<{ email: string }>(token).email ?? ''
       login(token, expiresAt, email)
       navigate('/compute/instances', { replace: true })
     } else {

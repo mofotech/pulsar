@@ -65,6 +65,7 @@ make proto          # Regenerate protobuf stubs from internal/proto/*.proto
 # Test & Lint
 make test           # Unit tests with race detector (integration tests skip)
 make test-integration  # + integration tests against throwaway Postgres/etcd (docker-compose.test.yml)
+make web-test       # Web UI tests (cd web && npm test); API mocked with MSW, unhandled requests fail
 make lint           # golangci-lint
 make test-remote    # Run tests on test host (TEST_HOST, set in gitignored local.mk)
 

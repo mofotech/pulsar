@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { decodeJwtPayload } from '@/lib/jwt'
 
 interface AuthState {
   token: string | null
@@ -29,11 +30,7 @@ interface JwtPayload {
 }
 
 function parseJwtPayload(token: string): JwtPayload {
-  try {
-    return JSON.parse(atob(token.split('.')[1])) as JwtPayload
-  } catch {
-    return {}
-  }
+  return decodeJwtPayload<JwtPayload>(token)
 }
 
 export const useAuthStore = create<AuthState>()(
