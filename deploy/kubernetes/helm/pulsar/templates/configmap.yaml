@@ -27,6 +27,7 @@ data:
       # postgres.dsn injected via PULSAR_CONTROLLER_POSTGRES_DSN env var
       image_store_dir: {{ .Values.controller.imageStoreDir | quote }}
       public_url: {{ .Values.controller.publicURL | quote }}
+      audit_retention_days: {{ .Values.controller.auditRetentionDays | int }}
       {{- with .Values.controller.quotaDefaults }}
       quota_defaults:
         {{- toYaml . | nindent 8 }}

@@ -29,6 +29,9 @@ controller:
   #   vcpus: 64
   #   instances: -1
 
+  # Audit events older than this are deleted daily (0 = keep forever).
+  # audit_retention_days: 365
+
 agent:
   controller_grpc: "controller:9090"
   node_id: "ag-pulsar-1"

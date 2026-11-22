@@ -31,6 +31,7 @@ func init() {
 		newNetworkCmd(),
 		newStorageCmd(),
 		newProjectCmd(),
+		newAuditCmd(),
 		newImagesCmd(),
 	)
 }

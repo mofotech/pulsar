@@ -39,6 +39,9 @@ type ControllerConfig struct {
 	// {vcpus: 64, instances: -1}. -1 = unlimited. Per-project overrides are
 	// set via PUT /v1/projects/{id}/quotas.
 	QuotaDefaults map[string]int `mapstructure:"quota_defaults"`
+	// AuditRetentionDays deletes audit events older than this (default 365;
+	// 0 keeps them forever).
+	AuditRetentionDays int `mapstructure:"audit_retention_days"`
 }
 
 type EtcdConfig struct {
@@ -134,6 +137,7 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetDefault("controller.image_store_dir", "/var/lib/pulsar/images-store")
 	v.SetDefault("controller.public_url", "http://localhost:8080")
 	v.SetDefault("controller.console_vnc_host", "host.docker.internal")
+	v.SetDefault("controller.audit_retention_days", 365)
 	v.SetDefault("agent.controller_grpc", "localhost:9090")
 	v.SetDefault("agent.compute.image_cache_dir", "/var/lib/pulsar/images")
 	v.SetDefault("agent.compute.instance_dir", "/var/lib/pulsar/instances")
@@ -216,6 +220,9 @@ func (c *ControllerConfig) Validate() error {
 		return errors.New("controller.jwt.secret is a published placeholder value; generate a real one with `openssl rand -hex 32`")
 	case len(s) < MinJWTSecretLen:
 		return fmt.Errorf("controller.jwt.secret must be at least %d bytes (got %d); generate one with `openssl rand -hex 32`", MinJWTSecretLen, len(s))
+	}
+	if c.AuditRetentionDays < 0 {
+		return errors.New("controller.audit_retention_days must be >= 0 (0 = keep forever)")
 	}
 	for _, n := range c.OIDCAllowedNetworks {
 		if n == "" {

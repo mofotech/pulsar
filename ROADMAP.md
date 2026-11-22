@@ -175,5 +175,5 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | systemd unit files | ✅ | `pulsar-controller.service` and `pulsar-agent-compute.service` in `deploy/systemd/` |
 | Ansible compute node role | ✅ | Full role: packages, OVS/OVN, libvirt, LVM thin-pool, Docker, agent deployment |
 | Host / hypervisor metrics export | ❌ | Not started |
-| Audit logging | 🔧 | Postgres schema present; no Go code path writes audit records yet |
+| Audit logging | ✅ | Every mutating `/v1` request recorded by one middleware (actor, org/project, resource type/id, action, outcome, status, route, request id, source IP; bodies never stored); login/logout/SSO recorded explicitly incl. denied attempts; async batched writer that never drops; `GET /v1/audit` + `pulsarctl audit`; retention via `controller.audit_retention_days` (default 365) |
 | Quota enforcement | ✅ | Instances, vCPUs, RAM, volumes, storage GB, floating IPs, networks, routers. Usage computed live from etcd; per-project etcd lock makes check+create atomic across replicas; `403 QUOTA_EXCEEDED`; defaults via `controller.quota_defaults`, overrides via `PUT /v1/projects/{id}/quotas` / `pulsarctl projects set-quota` (platform admin). No UI yet |

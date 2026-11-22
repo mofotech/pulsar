@@ -32,6 +32,28 @@ const (
 	revokedTokenKeyPrefix = "/pulsar/auth/revoked/" //nolint:gosec // etcd key prefix, not a credential
 )
 
+// Principal is who an authenticated request acted as.
+type Principal struct {
+	UserID, Email, ProjectID, OrgID, Role, OrgRole string
+}
+
+type principalSlotKey struct{}
+
+// WithPrincipalSlot returns a context carrying an empty *Principal that
+// AuthMiddleware fills in once it authenticates the request. Outer middleware
+// (audit logging) wraps the whole router and can't see context values added
+// by inner middleware, so it reads the slot after the handler returns.
+func WithPrincipalSlot(ctx context.Context) (context.Context, *Principal) {
+	p := &Principal{}
+	return context.WithValue(ctx, principalSlotKey{}, p), p
+}
+
+func fillPrincipalSlot(ctx context.Context, p Principal) {
+	if slot, ok := ctx.Value(principalSlotKey{}).(*Principal); ok {
+		*slot = p
+	}
+}
+
 // AuthMiddleware validates a Bearer token (JWT or PAT) and injects user claims
 // into the request context.
 //
@@ -97,6 +119,10 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 				ctx = context.WithValue(ctx, ctxKeyRole, matched.role)
 				ctx = context.WithValue(ctx, ctxKeyOrgID, matched.orgID)
 				ctx = context.WithValue(ctx, ctxKeyOrgRole, matched.orgRole)
+				fillPrincipalSlot(ctx, Principal{
+					UserID: matched.userID, ProjectID: projectID, OrgID: matched.orgID,
+					Role: matched.role, OrgRole: matched.orgRole,
+				})
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -140,6 +166,11 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 			ctx = context.WithValue(ctx, ctxKeyRole, claims["role"])
 			ctx = context.WithValue(ctx, ctxKeyOrgID, claims["org_id"])
 			ctx = context.WithValue(ctx, ctxKeyOrgRole, claims["org_role"])
+			str := func(k string) string { v, _ := claims[k].(string); return v }
+			fillPrincipalSlot(ctx, Principal{
+				UserID: str("sub"), Email: str("email"), ProjectID: projectID,
+				OrgID: str("org_id"), Role: str("role"), OrgRole: str("org_role"),
+			})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

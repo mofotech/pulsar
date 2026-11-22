@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/agomez/pulsar/internal/api"
+	"github.com/agomez/pulsar/internal/audit"
 	"github.com/agomez/pulsar/internal/config"
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/internal/store/postgres"
@@ -32,6 +33,7 @@ type env struct {
 	store *etcd.Client
 	cfg   *config.Config
 	srv   *httptest.Server
+	audit *audit.Recorder
 }
 
 // newEnv allows IdP traffic to loopback, where the fake IdPs run.
@@ -57,6 +59,9 @@ func newEnvWith(t *testing.T, mutate func(*config.Config)) *env {
 	}
 
 	h := NewHandler(e.cfg, db, store, zap.NewNop())
+	e.audit = audit.NewRecorder(db, zap.NewNop())
+	t.Cleanup(e.audit.Close)
+	h.SetAuditRecorder(e.audit)
 	auth := api.AuthMiddleware(testJWTSecret, store, db)
 
 	// Mirrors the identity routes in internal/controller/router.go.
@@ -243,4 +248,27 @@ func expectStatus(t *testing.T, r resp, want int) {
 	if r.status != want {
 		t.Fatalf("status = %d, want %d; body: %s", r.status, want, r.body)
 	}
+}
+
+// auditTrail flushes queued audit events and returns
+// "action outcome email user_id" lines in order.
+func (e *env) auditTrail() []string {
+	e.t.Helper()
+	e.audit.Close() // flush; later events are written inline
+	rows, err := e.db.Pool().Query(context.Background(), `
+		SELECT action, outcome, COALESCE(actor_email,''), COALESCE(user_id::text,'')
+		  FROM audit_events WHERE resource_type = 'auth' ORDER BY id`)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var a, o, em, u string
+		if err := rows.Scan(&a, &o, &em, &u); err != nil {
+			e.t.Fatal(err)
+		}
+		out = append(out, strings.TrimSpace(a+" "+o+" "+em+" "+u))
+	}
+	return out
 }

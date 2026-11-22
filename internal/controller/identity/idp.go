@@ -22,6 +22,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/agomez/pulsar/internal/api"
+	"github.com/agomez/pulsar/internal/audit"
 	"github.com/agomez/pulsar/pkg/id"
 )
 
@@ -563,6 +564,11 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	userID, projectID, userRole, userOrgRole, status, msg := h.resolveFederatedUser(
 		ctx, idpID, orgID, externalSub, externalEmail, autoProvision, defaultRole)
 	if status != 0 {
+		outcome := audit.Failure
+		if status == http.StatusForbidden {
+			outcome = audit.Denied
+		}
+		h.recordAuth(r, "sso_login", outcome, "", orgID, externalEmail)
 		http.Error(w, msg, status)
 		return
 	}
@@ -594,6 +600,8 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to issue token", http.StatusInternalServerError)
 		return
 	}
+
+	h.recordAuth(r, "sso_login", audit.Success, userID, orgID, email)
 
 	// Redirect to the UI with the token as a query parameter.
 	// The UI reads it from the URL, stores it, then strips the param.

@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
+	"github.com/agomez/pulsar/internal/audit"
 	"github.com/agomez/pulsar/internal/config"
 	"github.com/agomez/pulsar/internal/controller/quota"
 	"github.com/agomez/pulsar/internal/controller/reconciler"
@@ -78,8 +79,12 @@ func (s *Server) Run(ctx context.Context) error {
 	s.registry.RegisterTaskResultHandler("reconciler", rec.HandleTaskResult)
 	rec.Start(ctx)
 
+	// Audit log: background writer + daily retention sweep.
+	auditRec := audit.NewRecorder(s.db, s.log)
+	auditRec.StartRetention(ctx, time.Duration(s.cfg.Controller.AuditRetentionDays)*24*time.Hour)
+
 	// Start REST API server
-	httpSrv := s.startHTTP()
+	httpSrv := s.startHTTP(auditRec)
 
 	s.log.Info("controller started",
 		zap.String("http", s.cfg.Controller.ListenHTTP),
@@ -103,6 +108,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := httpSrv.Shutdown(shutCtx); err != nil {
 		s.log.Error("http shutdown error", zap.Error(err))
 	}
+	auditRec.Close() // flush queued events before the DB pool closes
 	s.etcd.Close()
 	s.db.Close()
 
@@ -126,8 +132,8 @@ func (s *Server) startGRPC() (*grpc.Server, error) {
 	return srv, nil
 }
 
-func (s *Server) startHTTP() *http.Server {
-	router := newRouter(s.cfg, s.log, s.etcd, s.db, s.registry)
+func (s *Server) startHTTP(auditRec *audit.Recorder) *http.Server {
+	router := newRouter(s.cfg, s.log, s.etcd, s.db, s.registry, auditRec)
 	srv := &http.Server{
 		Addr:         s.cfg.Controller.ListenHTTP,
 		Handler:      router,

@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/agomez/pulsar/internal/api"
+	"github.com/agomez/pulsar/internal/audit"
 	"github.com/agomez/pulsar/internal/config"
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/internal/store/postgres"
@@ -34,6 +35,18 @@ type Handler struct {
 	log   *zap.Logger
 	// issuerHTTP is the only client allowed to talk to IdPs (SSRF-restricted).
 	issuerHTTP *http.Client
+	audit      *audit.Recorder // nil = not recorded
+}
+
+// SetAuditRecorder enables audit events for login, logout and SSO.
+func (h *Handler) SetAuditRecorder(r *audit.Recorder) { h.audit = r }
+
+// recordAuth records an authentication event. Never pass secrets.
+func (h *Handler) recordAuth(r *http.Request, action, outcome, userID, orgID, email string) {
+	e := audit.RequestEvent(r, "auth", action, outcome)
+	e.UserID, e.OrgID, e.ActorEmail = userID, orgID, email
+	e.ResourceID = userID
+	h.audit.Record(e)
 }
 
 func NewHandler(cfg *config.Config, db *postgres.DB, store *etcd.Client, log *zap.Logger) *Handler {
@@ -80,6 +93,7 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		   FROM users WHERE email = $1`, req.Email)
 	if err := row.Scan(&userID, &projectID, &passwordHash, &role, &orgID, &orgRole); err != nil {
 		// Unknown user — return 401 (don't leak whether email exists).
+		h.recordAuth(r, "login", audit.Denied, "", "", req.Email)
 		api.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials", middleware.GetReqID(ctx))
 		return
 	}
@@ -87,6 +101,7 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	// Verify bcrypt hash. Any row without a valid bcrypt hash (including the
 	// old "dev-nohash" sentinel) fails closed; reset it via PATCH /users/{id}.
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		h.recordAuth(r, "login", audit.Denied, userID, orgID, req.Email)
 		api.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials", middleware.GetReqID(ctx))
 		return
 	}
@@ -142,6 +157,7 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.recordAuth(r, "login", audit.Success, userID, orgID, req.Email)
 	api.WriteJSON(w, http.StatusCreated, tokenResponse{Token: signed, ExpiresAt: expiry}, middleware.GetReqID(ctx))
 }
 
@@ -202,6 +218,10 @@ func (h *Handler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sub, _ := claims["sub"].(string)
+	orgID, _ := claims["org_id"].(string)
+	email, _ := claims["email"].(string)
+	h.recordAuth(r, "logout", audit.Success, sub, orgID, email)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -426,3 +426,26 @@ func TestIDPIssuerURLValidatedOnSave(t *testing.T) {
 	expectStatus(t, e.do(http.MethodPatch, "/v1/orgs/"+org+"/idps/"+p.ID, tok,
 		map[string]any{"issuer_url": "file:///etc/passwd"}), http.StatusBadRequest)
 }
+
+func TestSSOLoginsAreAudited(t *testing.T) {
+	e := newEnv(t)
+	org := e.createOrg("acme")
+	e.createProject(org, "default")
+	idp := newFakeIDP(t)
+	e.addIDP(org, "acme", idp.srv.URL, "member", true)
+
+	idp.setClaims(map[string]any{"sub": "ok-1", "email": "sso@acme.test"})
+	_, tok := tokenFromRedirect(t, e.ssoLogin("acme", ""))
+	uid, _ := claims(t, tok)["sub"].(string)
+
+	// Refused account link (existing admin elsewhere) is recorded as denied.
+	e.createUser("boss@example.test", userOpts{role: "admin", orgRole: "platform_admin"})
+	idp.setClaims(map[string]any{"sub": "evil", "email": "boss@example.test"})
+	expectStatus(t, e.ssoLogin("acme", ""), http.StatusForbidden)
+
+	got := e.auditTrail()
+	want := []string{"sso_login success sso@acme.test " + uid, "sso_login denied boss@example.test"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("audit trail %q, want %q", got, want)
+	}
+}
