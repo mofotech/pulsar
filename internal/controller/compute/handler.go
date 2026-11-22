@@ -463,11 +463,11 @@ func (h *Handler) ListNodes(w http.ResponseWriter, r *http.Request) {
 		out = append(out, nodeView{
 			AgentID:         n.AgentID,
 			Pillar:          n.Pillar,
-			HypervisorTypes: n.Capabilities.HypervisorTypes,
-			VcpusTotal:      n.Resources.VcpusTotal,
-			VcpusUsed:       n.Resources.VcpusUsed,
-			RamMbTotal:      n.Resources.RamMbTotal,
-			RamMbUsed:       n.Resources.RamMbUsed,
+			HypervisorTypes: n.Capabilities.GetHypervisorTypes(),
+			VcpusTotal:      n.Resources.GetVcpusTotal(),
+			VcpusUsed:       n.Resources.GetVcpusUsed(),
+			RamMbTotal:      n.Resources.GetRamMbTotal(),
+			RamMbUsed:       n.Resources.GetRamMbUsed(),
 			LastSeen:        n.LastSeen.UTC().Format(time.RFC3339),
 		})
 	}

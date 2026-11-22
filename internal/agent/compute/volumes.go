@@ -70,8 +70,8 @@ func (e *Executor) attachVolume(ctx context.Context, payload []byte, result *age
 		}
 		// Stale session found — force logout and re-login for a fresh device node.
 		e.log.Info("stale iSCSI session detected, cycling session", zap.String("iqn", task.IQN))
-		iscsiCmd(ctx, "iscsiadm", "-m", "node", "-T", task.IQN, "-p", task.Portal, "--logout")   //nolint:errcheck
-		runCmd(ctx, "udevadm", "settle", "--timeout=3")                                            //nolint:errcheck
+		iscsiCmd(ctx, "iscsiadm", "-m", "node", "-T", task.IQN, "-p", task.Portal, "--logout") //nolint:errcheck
+		runCmd(ctx, "udevadm", "settle", "--timeout=3")                                        //nolint:errcheck
 		if out2, err2 := iscsiCmd(ctx, "iscsiadm",
 			"-m", "node",
 			"-T", task.IQN,
@@ -167,7 +167,7 @@ func (e *Executor) detachVolume(ctx context.Context, payload []byte) error {
 func (e *Executor) setVolumeQoS(ctx context.Context, payload []byte) error {
 	var task struct {
 		InstanceID    string `json:"instance_id"`
-		Device        string `json:"device"`         // guest device path, e.g. /dev/vdb
+		Device        string `json:"device"` // guest device path, e.g. /dev/vdb
 		ReadIOPSSec   int64  `json:"read_iops_sec"`
 		WriteIOPSSec  int64  `json:"write_iops_sec"`
 		TotalIOPSSec  int64  `json:"total_iops_sec"`

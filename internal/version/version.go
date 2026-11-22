@@ -7,7 +7,8 @@ import (
 )
 
 // Set via -ldflags at build time:
-//   go build -ldflags "-X github.com/agomez/pulsar/internal/version.Version=v0.1.0"
+//
+//	go build -ldflags "-X github.com/agomez/pulsar/internal/version.Version=v0.1.0"
 var (
 	Version   = "dev"
 	GitCommit = "unknown"

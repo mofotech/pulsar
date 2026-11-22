@@ -428,7 +428,7 @@ func pickAgent(agents []*registry.AgentRecord, hypervisorType string) *registry.
 
 	for _, a := range agents {
 		supported := false
-		for _, ht := range a.Capabilities.HypervisorTypes {
+		for _, ht := range a.Capabilities.GetHypervisorTypes() {
 			if ht == hypervisorType {
 				supported = true
 				break
@@ -437,11 +437,11 @@ func pickAgent(agents []*registry.AgentRecord, hypervisorType string) *registry.
 		if !supported {
 			continue
 		}
-		total := a.Resources.VcpusTotal
+		total := a.Resources.GetVcpusTotal()
 		if total == 0 {
 			total = 1
 		}
-		load := float64(a.Resources.VcpusUsed) / float64(total)
+		load := float64(a.Resources.GetVcpusUsed()) / float64(total)
 		if best == nil || load < bestLoad {
 			best = a
 			bestLoad = load

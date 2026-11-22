@@ -207,7 +207,7 @@ func (s *Service) pickStorageAgent() (*registry.AgentRecord, error) {
 	}
 	// Pick first agent with lvm backend; fall back to any storage agent
 	for _, a := range agents {
-		for _, b := range a.Capabilities.StorageBackends {
+		for _, b := range a.Capabilities.GetStorageBackends() {
 			if b == "lvm" {
 				return a, nil
 			}

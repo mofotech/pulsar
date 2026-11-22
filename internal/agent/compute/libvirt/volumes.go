@@ -10,8 +10,8 @@ import (
 // AttachDisk hot-plugs a raw block device into the running domain and persists
 // it to the domain config so it survives a reboot.
 //
-//   hostDev   — host-side block device, e.g. /dev/sdb (from iSCSI login)
-//   targetDev — guest-side device name, e.g. vdb or sdb (no /dev/ prefix)
+//	hostDev   — host-side block device, e.g. /dev/sdb (from iSCSI login)
+//	targetDev — guest-side device name, e.g. vdb or sdb (no /dev/ prefix)
 //
 // Disks are attached via the virtio-scsi controller (index 0) that is defined
 // in every domain at creation time. The target name is normalised to "sd*" as

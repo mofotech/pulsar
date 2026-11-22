@@ -494,4 +494,3 @@ func (h *Handler) DeleteFirewallPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-

@@ -23,10 +23,13 @@ const (
 
 // AgentRecord holds live state for a connected agent node.
 type AgentRecord struct {
-	AgentID      string
-	Pillar       string
-	Capabilities agentpb.AgentCapabilities
-	Resources    agentpb.ResourceUsage
+	AgentID string
+	Pillar  string
+	// Pointers, not values: proto messages embed a mutex and must not be
+	// copied. Use the nil-safe Get* accessors when reading. A heartbeat's
+	// messages are freshly allocated per receive, so they are never aliased.
+	Capabilities *agentpb.AgentCapabilities
+	Resources    *agentpb.ResourceUsage
 	LastSeen     time.Time
 	sendCh       chan *agentpb.ControllerMessage
 }
@@ -135,15 +138,26 @@ func (r *AgentRegistry) sweepStale() {
 	}
 }
 
-// ListAll returns all currently registered agents across every pillar.
+// ListAll returns snapshots of all currently registered agents across every
+// pillar. See snapshot for why callers never get the live records.
 func (r *AgentRegistry) ListAll() []*AgentRecord {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]*AgentRecord, 0, len(r.agents))
 	for _, rec := range r.agents {
-		out = append(out, rec)
+		out = append(out, rec.snapshot())
 	}
 	return out
+}
+
+// snapshot returns a copy of rec taken while the caller holds r.mu.
+// upsert mutates live records under the lock on every heartbeat; handing the
+// live pointer to callers that read it without the lock is a data race.
+// The copied proto pointers are safe to share: upsert replaces them with each
+// new heartbeat's messages and never mutates a stored message in place.
+func (rec *AgentRecord) snapshot() *AgentRecord {
+	cp := *rec
+	return &cp
 }
 
 // RegisterTaskResultHandler registers a callback for tasks with the given namespace prefix.
@@ -255,10 +269,10 @@ func (r *AgentRegistry) upsert(key string, hb *agentpb.Heartbeat, sendCh chan *a
 	rec.Pillar = hb.Pillar
 	rec.LastSeen = time.Now()
 	if hb.Capabilities != nil {
-		rec.Capabilities = *hb.Capabilities //nolint:govet // proto internal mutex is never locked during heartbeat copy
+		rec.Capabilities = hb.Capabilities
 	}
 	if hb.Resources != nil {
-		rec.Resources = *hb.Resources //nolint:govet
+		rec.Resources = hb.Resources
 	}
 
 	// Snapshot reconnect handler while holding the lock.
@@ -294,7 +308,7 @@ func (r *AgentRegistry) unregister(key string) {
 	delete(r.agents, key)
 }
 
-// ListByPillar returns all live agents for a given pillar.
+// ListByPillar returns snapshots of all live agents for a given pillar.
 func (r *AgentRegistry) ListByPillar(pillar string) []*AgentRecord {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -302,7 +316,7 @@ func (r *AgentRegistry) ListByPillar(pillar string) []*AgentRecord {
 	out := make([]*AgentRecord, 0)
 	for _, rec := range r.agents {
 		if rec.Pillar == pillar {
-			out = append(out, rec)
+			out = append(out, rec.snapshot())
 		}
 	}
 	return out

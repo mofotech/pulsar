@@ -18,8 +18,8 @@ const keyPrefix = "/pulsar/images/"
 type Image struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	Status    string    `json:"status"`              // queued | active | error
-	Format    string    `json:"format"`              // qcow2 | raw | oci
+	Status    string    `json:"status"` // queued | active | error
+	Format    string    `json:"format"` // qcow2 | raw | oci
 	SizeBytes int64     `json:"size_bytes,omitempty"`
 	URL       string    `json:"url,omitempty"` // set for URL-registered images; for uploads this is the controller download URL
 	CreatedAt time.Time `json:"created_at"`

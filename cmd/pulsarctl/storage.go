@@ -165,4 +165,3 @@ func storVolumeTypesCmd() *cobra.Command {
 	)
 	return cmd
 }
-

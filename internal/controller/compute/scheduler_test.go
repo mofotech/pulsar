@@ -10,13 +10,13 @@ import (
 
 func makeAgent(id, pillar string, hypervisors []string, vcpusTotal, vcpusUsed int32) *registry.AgentRecord {
 	return &registry.AgentRecord{
-		AgentID: id,
-		Pillar:  pillar,
+		AgentID:  id,
+		Pillar:   pillar,
 		LastSeen: time.Now(),
-		Capabilities: agentpb.AgentCapabilities{
+		Capabilities: &agentpb.AgentCapabilities{
 			HypervisorTypes: hypervisors,
 		},
-		Resources: agentpb.ResourceUsage{
+		Resources: &agentpb.ResourceUsage{
 			VcpusTotal: vcpusTotal,
 			VcpusUsed:  vcpusUsed,
 		},

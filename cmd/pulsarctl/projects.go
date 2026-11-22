@@ -139,4 +139,3 @@ func userCreateCmd() *cobra.Command {
 	cmd.MarkFlagRequired("email") //nolint:errcheck
 	return cmd
 }
-
