@@ -486,9 +486,10 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Seed the creator as a member of the new project.
+	// The creator administers the new project's membership.
 	if _, err := h.db.Pool().Exec(ctx,
-		`INSERT INTO project_members (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		`INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'admin')
+		 ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'admin'`,
 		p.ID, callerUserID,
 	); err != nil {
 		h.log.Warn("failed to seed project_members for new project creator", zap.Error(err))
@@ -864,61 +865,30 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 // ─── Project membership ───────────────────────────────────────────────────────
 
-// GrantProjectAccess adds a user to a project (admin only).
-// PUT /v1/users/{id}/projects/{project_id}
+// GrantProjectAccess adds a user to a project, or changes their role.
+// PUT /v1/users/{id}/projects/{project_id}  body (optional): {"role": "reader|member|admin"}
+// Same rules as PUT /v1/projects/{id}/members/{user_id}.
 func (h *Handler) GrantProjectAccess(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetReqID(r.Context())
-	if !requireAdmin(w, r, reqID) {
+	role := api.ProjectRoleMember
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.Role != "" {
+		role = req.Role
+	}
+	if !api.ValidProjectRole(role) {
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "role must be 'reader', 'member' or 'admin'",
+			middleware.GetReqID(r.Context()))
 		return
 	}
-	ctx := r.Context()
-	userID := chi.URLParam(r, "id")
-	projectID := chi.URLParam(r, "project_id")
-
-	if _, err := h.db.Pool().Exec(ctx,
-		`INSERT INTO project_members (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		projectID, userID,
-	); err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	h.setProjectMember(w, r, chi.URLParam(r, "project_id"), chi.URLParam(r, "id"), role)
 }
 
-// RevokeProjectAccess removes a user from a project (admin only).
+// RevokeProjectAccess removes a user from a project.
 // DELETE /v1/users/{id}/projects/{project_id}
-// Refuses to remove the user's home project (users.project_id).
+// Refuses to remove the user's home project or the project's last admin.
 func (h *Handler) RevokeProjectAccess(w http.ResponseWriter, r *http.Request) {
-	reqID := middleware.GetReqID(r.Context())
-	if !requireAdmin(w, r, reqID) {
-		return
-	}
-	ctx := r.Context()
-	userID := chi.URLParam(r, "id")
-	projectID := chi.URLParam(r, "project_id")
-
-	// Refuse to revoke the user's home project — they must always have one.
-	var homeProjectID string
-	if err := h.db.Pool().QueryRow(ctx,
-		`SELECT COALESCE(project_id::text, '') FROM users WHERE id = $1`, userID,
-	).Scan(&homeProjectID); err != nil {
-		api.WriteError(w, http.StatusNotFound, "NOT_FOUND", "user not found", reqID)
-		return
-	}
-	if homeProjectID == projectID {
-		api.WriteError(w, http.StatusConflict, "HOME_PROJECT",
-			"cannot revoke access to the user's home project; reassign the home project first", reqID)
-		return
-	}
-
-	if _, err := h.db.Pool().Exec(ctx,
-		`DELETE FROM project_members WHERE project_id = $1 AND user_id = $2`,
-		projectID, userID,
-	); err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	h.removeProjectMember(w, r, chi.URLParam(r, "project_id"), chi.URLParam(r, "id"))
 }
 
 // ListUserProjects returns the list of projects a user is a member of (admin only).

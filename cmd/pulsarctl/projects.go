@@ -12,6 +12,9 @@ func newProjectCmd() *cobra.Command {
 		projectCreateCmd(),
 		projectQuotaCmd(),
 		projectSetQuotaCmd(),
+		projectMembersCmd(),
+		projectSetMemberCmd(),
+		projectRemoveMemberCmd(),
 		userListCmd(),
 		userCreateCmd(),
 	)

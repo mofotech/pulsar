@@ -76,6 +76,8 @@ CREATE INDEX IF NOT EXISTS keypairs_user_id_idx ON keypairs(user_id);
 CREATE TABLE IF NOT EXISTS project_members (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     user_id    UUID NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    role       TEXT NOT NULL DEFAULT 'member'
+               CONSTRAINT project_members_role_check CHECK (role IN ('reader', 'member', 'admin')),
     PRIMARY KEY (project_id, user_id)
 );
 

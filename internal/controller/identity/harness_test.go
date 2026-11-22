@@ -82,6 +82,15 @@ func newEnvWith(t *testing.T, mutate func(*config.Config)) *env {
 	r.Route("/v1/users", func(r chi.Router) {
 		r.Use(auth)
 		r.Post("/", h.CreateUser)
+		r.Put("/{id}/projects/{project_id}", h.GrantProjectAccess)
+		r.Delete("/{id}/projects/{project_id}", h.RevokeProjectAccess)
+	})
+	r.Route("/v1/projects", func(r chi.Router) {
+		r.Use(auth)
+		r.Post("/", h.CreateProject)
+		r.Get("/{id}/members", h.ListProjectMembers)
+		r.Put("/{id}/members/{user_id}", h.PutProjectMember)
+		r.Delete("/{id}/members/{user_id}", h.DeleteProjectMember)
 	})
 
 	e.srv = httptest.NewServer(r)

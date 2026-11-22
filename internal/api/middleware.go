@@ -27,6 +27,9 @@ const (
 	ctxKeyRole      contextKey = "role"
 	ctxKeyOrgID     contextKey = "org_id"
 	ctxKeyOrgRole   contextKey = "org_role"
+	// ctxKeyProjectRole is the caller's role in the active project
+	// (reader | member | admin), set by ProjectScopeMiddleware.
+	ctxKeyProjectRole contextKey = "project_role"
 
 	// revokedTokenKeyPrefix mirrors the value in the identity handler.
 	revokedTokenKeyPrefix = "/pulsar/auth/revoked/" //nolint:gosec // etcd key prefix, not a credential
@@ -258,6 +261,33 @@ func OrgIDFromContext(ctx context.Context) string {
 	return v
 }
 
+// Project roles (project_members.role).
+const (
+	ProjectRoleReader = "reader"
+	ProjectRoleMember = "member"
+	ProjectRoleAdmin  = "admin"
+)
+
+// ValidProjectRole reports whether r is a known project role.
+func ValidProjectRole(r string) bool {
+	return r == ProjectRoleReader || r == ProjectRoleMember || r == ProjectRoleAdmin
+}
+
+// ProjectRoleFromContext returns the caller's role in the active project, as
+// established by ProjectScopeMiddleware ("" outside project-scoped routes).
+func ProjectRoleFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ctxKeyProjectRole).(string)
+	return v
+}
+
+func isMutatingMethod(m string) bool {
+	switch m {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	}
+	return true
+}
+
 // OrgRoleFromContext extracts the org_role claim injected by AuthMiddleware.
 // Returns 'platform_admin', 'org_admin', or 'member'.
 func OrgRoleFromContext(ctx context.Context) string {
@@ -278,7 +308,7 @@ func ProjectScopeMiddleware(db *postgres.DB) func(http.Handler) http.Handler {
 
 			// Platform admins may access any project in any org.
 			if RoleFromContext(ctx) == "admin" {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, ctxKeyProjectRole, ProjectRoleAdmin)))
 				return
 			}
 
@@ -296,23 +326,32 @@ func ProjectScopeMiddleware(db *postgres.DB) func(http.Handler) http.Handler {
 			//   2. The caller is a member of that project.
 			// This prevents cross-org access even when X-Project-Id is supplied.
 			orgID := OrgIDFromContext(ctx)
-			var count int
+			var role string
 			err := db.Pool().QueryRow(ctx,
-				`SELECT COUNT(*)
+				`SELECT pm.role
 				   FROM project_members pm
 				   JOIN projects p ON p.id = pm.project_id
 				  WHERE pm.project_id = $1
 				    AND pm.user_id    = $2
 				    AND p.org_id      = $3`,
 				projectID, userID, orgID,
-			).Scan(&count)
-			if err != nil || count == 0 {
+			).Scan(&role)
+			if err != nil {
 				WriteError(w, http.StatusForbidden, "FORBIDDEN",
 					"you do not have access to the requested project", reqID)
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// Readers may look but not touch. Enforced here, on every
+			// project-scoped route, so new routes are read-only for readers
+			// by default rather than by remembering a per-handler check.
+			if role == ProjectRoleReader && isMutatingMethod(r.Method) {
+				WriteError(w, http.StatusForbidden, "PROJECT_READ_ONLY",
+					"your role in this project is 'reader', which is read-only", reqID)
+				return
+			}
+
+			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, ctxKeyProjectRole, role)))
 		})
 	}
 }
