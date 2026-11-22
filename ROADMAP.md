@@ -1,6 +1,6 @@
 # Pulsar Roadmap
 
-Status as of 2026-04-10.
+Status as of 2026-11-21.
 
 Legend: ✅ Done · 🔧 Partial / stubbed · ❌ Not started
 
@@ -154,14 +154,16 @@ Legend: ✅ Done · 🔧 Partial / stubbed · ❌ Not started
 |---|---|---|
 | Single binary distribution | ✅ | `pulsar controller` / `pulsar agent --pillar=…` |
 | Docker Compose deployment | ✅ | Full 6-container stack; health checks |
+| Standalone web frontend container | ✅ | `Dockerfile.web` + nginx (`deploy/docker/nginx.web.conf`) with Docker DNS resolver and WebSocket-aware `Connection` header; `make docker-web` |
+| CI (GitHub Actions) | ✅ | golangci-lint, `go test -race`, linux/amd64 builds of `pulsar` + `pulsarctl`, web typecheck + build; artifacts uploaded |
 | Prometheus metrics endpoint | ✅ | `:9091/metrics` on controller |
 | etcd state store | ✅ | All real-time resource state |
 | PostgreSQL ledger | ✅ | Users, projects, quotas, audit; auto-migrated |
 | gRPC agent↔controller streams | ✅ | Bidirectional task assignment and results |
-| mTLS between services | 🔧 | TLS config struct exists; not enforced in dev |
-| Kubernetes / Helm deployment | ❌ | Not started |
+| mTLS between services | 🔧 | `TLSConfig` struct in config; client-cert verification not wired up anywhere |
+| Kubernetes / Helm deployment | 🔧 | Chart v0.1.0 in `deploy/kubernetes/helm/pulsar` (controller Deployment, etcd/Postgres StatefulSets, agent + infra DaemonSets) and `NODE-SETUP.md`; not exercised in CI |
 | systemd unit files | ✅ | `pulsar-controller.service` and `pulsar-agent-compute.service` in `deploy/systemd/` |
 | Ansible compute node role | ✅ | Full role: packages, OVS/OVN, libvirt, LVM thin-pool, Docker, agent deployment |
 | Host / hypervisor metrics export | ❌ | Not started |
-| Audit logging | 🔧 | Postgres schema present; not written to consistently |
-| Quota enforcement | 🔧 | Schema present; not enforced at API layer |
+| Audit logging | 🔧 | Postgres schema present; no Go code path writes audit records yet |
+| Quota enforcement | 🔧 | Schema present; no Go code reads or enforces quotas yet |
