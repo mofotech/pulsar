@@ -25,6 +25,9 @@ func NewCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("config: %w", err)
 			}
+			if err := cfg.Agent.TLS.Files().Validate(); err != nil {
+				return fmt.Errorf("config: agent.tls: %w", err)
+			}
 
 			if pillar != "" {
 				cfg.Agent.Pillar = pillar

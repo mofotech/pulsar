@@ -22,6 +22,9 @@ local.mk
 deploy/ansible/inventory/hosts.yml
 deploy/ansible/group_vars/compute_nodes.yml
 
+# Agent gateway certificates/keys (pulsar certs)
+deploy/docker/pki/
+
 # Local secrets (see deploy/docker/.env.example)
 .env
 !.env.example

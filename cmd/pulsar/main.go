@@ -8,6 +8,7 @@ import (
 
 	"github.com/agomez/pulsar/internal/agent"
 	"github.com/agomez/pulsar/internal/controller"
+	"github.com/agomez/pulsar/internal/mtls"
 	"github.com/agomez/pulsar/internal/version"
 )
 
@@ -21,6 +22,7 @@ func init() {
 	rootCmd.AddCommand(controller.NewCommand())
 	rootCmd.AddCommand(agent.NewCommand())
 	rootCmd.AddCommand(version.NewCommand())
+	rootCmd.AddCommand(mtls.NewCommand())
 }
 
 func main() {

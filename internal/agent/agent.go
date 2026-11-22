@@ -19,6 +19,7 @@ import (
 	networkexec "github.com/agomez/pulsar/internal/agent/network"
 	storageexec "github.com/agomez/pulsar/internal/agent/storage"
 	"github.com/agomez/pulsar/internal/config"
+	"github.com/agomez/pulsar/internal/mtls"
 )
 
 const heartbeatInterval = 10 * time.Second
@@ -79,10 +80,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := grpc.NewClient(
-		a.cfg.Agent.ControllerGRPC,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	creds := insecure.NewCredentials()
+	if files := a.cfg.Agent.TLS.Files(); files.Enabled() {
+		c, err := mtls.ClientCredentials(files, a.cfg.Agent.ControllerGRPC)
+		if err != nil {
+			return fmt.Errorf("agent mTLS: %w", err)
+		}
+		creds = c
+	} else {
+		a.log.Warn("connecting to the controller over PLAINTEXT gRPC; set agent.tls to use mutual TLS")
+	}
+	conn, err := grpc.NewClient(a.cfg.Agent.ControllerGRPC, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return fmt.Errorf("grpc dial: %w", err)
 	}

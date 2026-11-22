@@ -170,7 +170,7 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | etcd state store | ✅ | All real-time resource state |
 | PostgreSQL ledger | ✅ | Users, projects, quotas, audit; auto-migrated |
 | gRPC agent↔controller streams | ✅ | Bidirectional task assignment and results |
-| mTLS between services | 🔧 | `TLSConfig` struct in config; client-cert verification not wired up anywhere |
+| mTLS between services | ✅ | Controller ↔ agent gRPC: `controller.grpc_tls` / `agent.tls` (TLS 1.3, client certs required); agent_id must equal the client cert CN; streams can't switch identity; `pulsar certs` CA/issuance; Docker Compose wiring. Plaintext still allowed (with a start-up warning). Not yet: Helm/Ansible cert distribution (per-node certs, e.g. cert-manager), controller ↔ etcd TLS |
 | Kubernetes / Helm deployment | 🔧 | Chart v0.1.0 in `deploy/kubernetes/helm/pulsar` (controller Deployment, etcd/Postgres StatefulSets, agent + infra DaemonSets) and `NODE-SETUP.md`; not exercised in CI |
 | systemd unit files | ✅ | `pulsar-controller.service` and `pulsar-agent-compute.service` in `deploy/systemd/` |
 | Ansible compute node role | ✅ | Full role: packages, OVS/OVN, libvirt, LVM thin-pool, Docker, agent deployment |

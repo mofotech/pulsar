@@ -56,12 +56,17 @@ services:
       PULSAR_CONTROLLER_POSTGRES_DSN: postgres://pulsar:${POSTGRES_PASSWORD}@postgres/pulsar?sslmode=disable
       PULSAR_CONTROLLER_OIDC_BASE_URL: ${PULSAR_OIDC_BASE_URL:-http://localhost:3000}
       PULSAR_CONTROLLER_OIDC_ALLOWED_NETWORKS: ${PULSAR_OIDC_ALLOWED_NETWORKS:-}
+      # Agent gateway mTLS: enabled when these are set in .env (see .env.example).
+      PULSAR_CONTROLLER_GRPC_TLS_CA_CERT: ${PULSAR_GRPC_TLS_CA_CERT:-}
+      PULSAR_CONTROLLER_GRPC_TLS_CERT: ${PULSAR_GRPC_TLS_CERT:-}
+      PULSAR_CONTROLLER_GRPC_TLS_KEY: ${PULSAR_GRPC_TLS_KEY:-}
     ports:
       - "8080:8080"   # REST API
       - "9090:9090"   # gRPC (agent gateway)
       - "9091:9091"   # Prometheus metrics
     volumes:
       - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      - ./pki:/etc/pulsar/pki:ro
       - /var/lib/pulsar/image-store:/var/lib/pulsar/image-store
     depends_on:
       etcd:
@@ -82,10 +87,15 @@ services:
     image: pulsar:dev
     restart: unless-stopped
     command: ["agent", "--pillar=compute", "--config", "/etc/pulsar/pulsar.yaml"]
+    environment:
+      PULSAR_AGENT_TLS_CA_CERT: ${PULSAR_GRPC_TLS_CA_CERT:-}
+      PULSAR_AGENT_TLS_CERT: ${PULSAR_AGENT_TLS_CERT:-}
+      PULSAR_AGENT_TLS_KEY: ${PULSAR_AGENT_TLS_KEY:-}
     # Run as root so UID 0 can access the libvirt socket (owner: root:libvirt 0660)
     user: root
     volumes:
       - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      - ./pki:/etc/pulsar/pki:ro
       # libvirt socket — agent communicates with host libvirtd directly
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
       # Image and instance dirs MUST use the same host path so libvirtd can
@@ -123,8 +133,12 @@ services:
     network_mode: host
     environment:
       - PULSAR_AGENT_CONTROLLER_GRPC=127.0.0.1:9090
+      - PULSAR_AGENT_TLS_CA_CERT=${PULSAR_GRPC_TLS_CA_CERT:-}
+      - PULSAR_AGENT_TLS_CERT=${PULSAR_AGENT_TLS_CERT:-}
+      - PULSAR_AGENT_TLS_KEY=${PULSAR_AGENT_TLS_KEY:-}
     volumes:
       - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      - ./pki:/etc/pulsar/pki:ro
       - /var/run/ovn:/var/run/ovn          # OVN NB socket (host-installed OVN)
       - /var/run/openvswitch:/var/run/openvswitch  # OVS socket for ovs-vsctl
     cap_add:
@@ -145,8 +159,12 @@ services:
     network_mode: host
     environment:
       - PULSAR_AGENT_CONTROLLER_GRPC=127.0.0.1:9090
+      - PULSAR_AGENT_TLS_CA_CERT=${PULSAR_GRPC_TLS_CA_CERT:-}
+      - PULSAR_AGENT_TLS_CERT=${PULSAR_AGENT_TLS_CERT:-}
+      - PULSAR_AGENT_TLS_KEY=${PULSAR_AGENT_TLS_KEY:-}
     volumes:
       - ./pulsar.docker.yaml:/etc/pulsar/pulsar.yaml:ro
+      - ./pki:/etc/pulsar/pki:ro
       # LVM needs access to the host's device mapper and block devices.
       # /dev/mapper holds the activated LV device nodes (e.g. pulsar--vg-pulsar--pool).
       # /dev/vg-name holds the LV symlinks after activation.

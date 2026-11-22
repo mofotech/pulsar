@@ -17,6 +17,7 @@ import (
 	"github.com/agomez/pulsar/internal/controller/quota"
 	"github.com/agomez/pulsar/internal/controller/reconciler"
 	"github.com/agomez/pulsar/internal/controller/registry"
+	"github.com/agomez/pulsar/internal/mtls"
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/internal/store/postgres"
 )
@@ -115,7 +116,21 @@ func (s *Server) startGRPC() (*grpc.Server, error) {
 		return nil, err
 	}
 
-	srv := grpc.NewServer()
+	var opts []grpc.ServerOption
+	if files := s.cfg.Controller.GRPCTLS.Files(); files.Enabled() {
+		creds, err := mtls.ServerCredentials(files)
+		if err != nil {
+			lis.Close()
+			return nil, fmt.Errorf("grpc mTLS: %w", err)
+		}
+		opts = append(opts, grpc.Creds(creds))
+		s.registry.RequirePeerIdentity(true)
+		s.log.Info("agent gateway: mutual TLS enabled; agent_id must match client certificate CN")
+	} else {
+		s.log.Warn("agent gateway is PLAINTEXT and unauthenticated: anyone who can reach " +
+			s.cfg.Controller.ListenGRPC + " can pose as an agent. Set controller.grpc_tls (see `pulsar certs`).")
+	}
+	srv := grpc.NewServer(opts...)
 	s.registry.RegisterGRPC(srv)
 
 	go func() {

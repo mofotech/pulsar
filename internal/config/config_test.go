@@ -116,3 +116,25 @@ func TestQuotaDefaultsFromYAML(t *testing.T) {
 		t.Fatalf("quota_defaults = %v", got)
 	}
 }
+
+func TestGRPCTLSConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pulsar.yaml")
+	if err := os.WriteFile(path, []byte("controller: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PULSAR_CONTROLLER_GRPC_TLS_CERT", "/pki/controller.crt")
+	t.Setenv("PULSAR_AGENT_TLS_SERVER_NAME", "pulsar.internal")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Controller.GRPCTLS.Cert != "/pki/controller.crt" || cfg.Agent.TLS.ServerName != "pulsar.internal" {
+		t.Fatalf("env not bound: %+v / %+v", cfg.Controller.GRPCTLS, cfg.Agent.TLS)
+	}
+	// Half-configured TLS is rejected at start-up rather than silently ignored.
+	c := ControllerConfig{JWT: JWTConfig{Secret: strings.Repeat("a", MinJWTSecretLen)}}
+	c.GRPCTLS = TLSConfig{Cert: "/pki/controller.crt"}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "grpc_tls") {
+		t.Fatalf("partial grpc_tls accepted: %v", err)
+	}
+}

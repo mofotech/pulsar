@@ -11,7 +11,10 @@ import (
 	"google.golang.org/grpc"
 
 	agentpb "github.com/agomez/pulsar/gen/proto/agent"
+	"github.com/agomez/pulsar/internal/mtls"
 	"github.com/agomez/pulsar/internal/store/etcd"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -55,6 +58,7 @@ type AgentRegistry struct {
 	etcd                  *etcd.Client
 	log                   *zap.Logger
 	startedAt             time.Time
+	requireIdentity       bool // mTLS on: agent_id must match the client cert CN
 }
 
 func NewAgentRegistry(etcd *etcd.Client, log *zap.Logger) *AgentRegistry {
@@ -222,6 +226,11 @@ func (r *AgentRegistry) Connect(stream agentpb.AgentGateway_ConnectServer) error
 		switch p := msg.Payload.(type) {
 		case *agentpb.AgentMessage_Heartbeat:
 			hb := p.Heartbeat
+			if err := r.checkIdentity(ctx, hb, agentID, pillar); err != nil {
+				r.log.Warn("rejecting agent stream", zap.String("claimed_agent_id", hb.AgentId),
+					zap.String("pillar", hb.Pillar), zap.Error(err))
+				return err
+			}
 			agentID = hb.AgentId
 			pillar = hb.Pillar
 			r.upsert(registryKey(pillar, agentID), hb, sendCh)
@@ -255,6 +264,40 @@ func (r *AgentRegistry) Connect(stream agentpb.AgentGateway_ConnectServer) error
 			)
 		}
 	}
+}
+
+// RequirePeerIdentity makes every agent prove its agent_id with the Common
+// Name of its mTLS client certificate. Enabled when the gRPC server runs
+// with mutual TLS.
+func (r *AgentRegistry) RequirePeerIdentity(on bool) {
+	r.mu.Lock()
+	r.requireIdentity = on
+	r.mu.Unlock()
+}
+
+// checkIdentity rejects a heartbeat whose claimed identity isn't backed by
+// the connection: with mTLS the agent_id must equal the certificate's CN, and
+// (always) a stream may not switch to a different agent or pillar mid-way.
+func (r *AgentRegistry) checkIdentity(ctx context.Context, hb *agentpb.Heartbeat, prevID, prevPillar string) error {
+	if prevID != "" && (hb.AgentId != prevID || hb.Pillar != prevPillar) {
+		return status.Errorf(codes.PermissionDenied,
+			"agent identity changed mid-stream (%s/%s → %s/%s)", prevPillar, prevID, hb.Pillar, hb.AgentId)
+	}
+	r.mu.RLock()
+	require := r.requireIdentity
+	r.mu.RUnlock()
+	if !require {
+		return nil
+	}
+	cn, ok := mtls.PeerIdentity(ctx)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "agent connection is not mutually authenticated")
+	}
+	if cn != hb.AgentId {
+		return status.Errorf(codes.PermissionDenied,
+			"agent_id %q does not match client certificate %q", hb.AgentId, cn)
+	}
+	return nil
 }
 
 func (r *AgentRegistry) upsert(key string, hb *agentpb.Heartbeat, sendCh chan *agentpb.ControllerMessage) {
