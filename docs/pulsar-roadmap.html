@@ -112,16 +112,17 @@
 
   /* ── Feature list ── */
   .feature-list { list-style: none; }
+  /* Block layout (not flex): with flex, every inline <code>/<strong> in an
+     item became its own column. The icon is positioned in the left gutter. */
   .feature-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    position: relative;
+    padding-left: 24px !important;
     font-size: 9.5pt;
     padding: 4px 0;
     border-bottom: 1px solid #f8fafc;
   }
   .feature-list li:last-child { border-bottom: none; }
-  .feat-icon { flex-shrink: 0; width: 16px; text-align: center; margin-top: 1px; }
+  .feat-icon { position: absolute; left: 0; width: 16px; text-align: center; }
   .feat-done    .feat-icon::after { content: '✓'; color: #16a34a; font-weight: 700; }
   .feat-partial .feat-icon::after { content: '◑'; color: #d97706; }
   .feat-no      .feat-icon::after { content: '○'; color: #cbd5e1; }
@@ -173,10 +174,12 @@
     border-radius: 10px;
     padding: 20px 24px;
     font-family: 'SF Mono', 'Fira Mono', monospace;
-    font-size: 8.5pt;
+    font-size: 6.5pt;   /* fits the ~110-column diagram inside the 900px page */
     color: #334155;
-    line-height: 1.7;
+    line-height: 1.5;
     margin-bottom: 24px;
+    white-space: pre;   /* the diagram is preformatted ASCII art */
+    overflow-x: auto;
   }
 
   /* ── Gap table ── */
@@ -214,7 +217,11 @@
   /* ── Print ── */
   @media print {
     body { padding: 0; max-width: 100%; }
-    .pillar, .summary-card { break-inside: avoid; }
+    .summary-card { break-inside: avoid; }
+    /* Pillar cards can exceed a page (Identity does); let them split between
+       items rather than leaving a blank page, but never split an item. */
+    .feature-list li { break-inside: avoid; }
+    .arch-box { overflow: hidden; break-inside: avoid; }
     .phase { break-inside: avoid; }
     h2 { break-after: avoid; }
     @page { margin: 18mm 20mm; size: A4; }
@@ -230,8 +237,8 @@
   <h1>Pulsar IaaS</h1>
   <p style="font-size:13pt;color:#475569;margin-top:6px;">Engineering Roadmap &amp; Status Report</p>
   <div class="doc-meta">
-    <span>Date: April 2026</span>
-    <span>Version: 0.11 (Phase 11 — SSO/OIDC, organizations, per-org IDPs, personal access tokens)</span>
+    <span>Date: November 2026</span>
+    <span>Version: 0.12 (Phase 12 — security hardening, CI &amp; packaging)</span>
     <span>Author: Engineering</span>
     <span>
       <span class="badge badge-done">Done</span>
@@ -247,7 +254,7 @@
 <!-- ══════════════════════════════════════════════════════════════════════ -->
 <div class="summary-grid">
   <div class="summary-card">
-    <div class="big-num c-green">11</div>
+    <div class="big-num c-green">12</div>
     <div class="label">Phases Complete</div>
   </div>
   <div class="summary-card">
@@ -286,7 +293,7 @@
 │                                            Scheduler + Agent Registry                                     │
 │                                                     │                                                     │
 └─────────────────────────────────────────────────────┼───────────────────────────────────────────────────-─┘
-                                    gRPC bidirectional stream (mTLS)
+                                    gRPC bidirectional stream (mTLS planned)
           ┌──────────────────────────────┬────────────┴───────────────┐
           ▼                              ▼                             ▼
   ┌──────────────────┐        ┌──────────────────┐          ┌──────────────────┐
@@ -320,7 +327,8 @@
       </div>
       <ul class="feature-list">
         <li class="feat-done"><span class="feat-icon"></span>JWT-based auth (login → token; includes <code>jti</code>, <code>org_id</code>, <code>org_role</code> claims)</li>
-        <li class="feat-done"><span class="feat-icon"></span>Password hashing (bcrypt; legacy <code>dev-nohash</code> rows still accepted)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Password hashing (bcrypt; non-bcrypt rows, incl. legacy <code>dev-nohash</code>, are rejected)</li>
+        <li class="feat-done"><span class="feat-icon"></span>Secret hygiene — controller refuses empty, placeholder, or &lt;32-byte JWT secrets; no secrets in committed config</li>
         <li class="feat-done"><span class="feat-icon"></span>Token revocation — JTI deny-list in etcd with TTL; checked on every authenticated request</li>
         <li class="feat-done"><span class="feat-icon"></span>Multi-tenancy via projects</li>
         <li class="feat-done"><span class="feat-icon"></span>Role-based access (admin / member) — enforced on all identity mutation endpoints</li>
@@ -648,7 +656,7 @@
       <div class="phase-body">
         <div class="phase-name">Identity — Password Hashing, Token Revocation &amp; RBAC <span class="badge badge-done">Complete</span></div>
         <ul class="phase-items">
-          <li><strong>Password hashing:</strong> bcrypt (<code>DefaultCost</code>) at <code>CreateUser</code> and <code>CreateToken</code>; legacy <code>dev-nohash</code> rows still accepted for smooth migration ✓</li>
+          <li><strong>Password hashing:</strong> bcrypt (<code>DefaultCost</code>) at <code>CreateUser</code> and <code>CreateToken</code>; legacy <code>dev-nohash</code> rows were accepted for migration (bypass removed in Phase 12) ✓</li>
           <li><strong>Token revocation:</strong> <code>DELETE /auth/tokens</code> stores the token's <code>jti</code> in etcd at <code>/pulsar/auth/revoked/&lt;jti&gt;</code> with a TTL equal to the token's remaining lifetime; <code>AuthMiddleware</code> rejects revoked JTIs on every request across all API routes ✓</li>
           <li><strong>Admin RBAC enforcement:</strong> <code>requireAdmin()</code> helper guards <code>UpdateProject</code>, <code>DeleteProject</code>, and <code>UpdateUser</code>; returns 403 for non-admin callers ✓</li>
           <li><strong><code>UpdateUser</code>:</strong> <code>PATCH /users/{id}</code> — change role (<code>admin</code>/<code>member</code>) or reset password with bcrypt re-hash ✓</li>
@@ -689,7 +697,29 @@
 
     <!-- Phase 12 -->
     <div class="phase">
-      <div class="phase-label">Phase 12<br><span style="font-weight:400;color:#94a3b8">Q2–Q3 2026</span></div>
+      <div class="phase-label">Phase 12<br><span style="font-weight:400;color:#94a3b8">Apr–Nov 2026</span></div>
+      <div class="phase-spine">
+        <div class="phase-dot dot-done">✓</div>
+        <div class="phase-line"></div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-name">Security Hardening, CI &amp; Packaging <span class="badge badge-done">Complete</span></div>
+        <ul class="phase-items">
+          <li><strong>Login bypass removed:</strong> rows with the legacy <code>dev-nohash</code> sentinel no longer accept any password; every login verifies bcrypt ✓</li>
+          <li><strong>JWT secret validation:</strong> controller refuses to start with an empty, published-placeholder, or &lt;32-byte secret ✓</li>
+          <li><strong>Secrets out of git:</strong> Docker deploy reads JWT secret, Postgres password and OIDC base URL from gitignored <code>deploy/docker/.env</code> (<code>.env.example</code> template) ✓</li>
+          <li><strong>Env-injected secrets fixed:</strong> <code>PULSAR_CONTROLLER_JWT_SECRET</code> / <code>_POSTGRES_DSN</code> / <code>_OIDC_BASE_URL</code> are bound explicitly; previously ignored when absent from the config file ✓</li>
+          <li><strong>Agent registry data race fixed:</strong> list calls return snapshots; proto messages stored by pointer (go vet clean) ✓</li>
+          <li><strong>GitHub Actions CI:</strong> golangci-lint, <code>go test -race</code>, linux/amd64 builds, web typecheck + build, Helm lint/render/kubeconform ✓</li>
+          <li><strong>Helm chart v0.1.0:</strong> controller Deployment, etcd/Postgres StatefulSets, agent + infra DaemonSets; <code>jwt.secret</code> required at render time ✓</li>
+          <li><strong>Standalone web container:</strong> <code>Dockerfile.web</code> + nginx with Docker DNS resolver and WebSocket-aware <code>Connection</code> header ✓</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Phase 13 -->
+    <div class="phase">
+      <div class="phase-label">Phase 13<br><span style="font-weight:400;color:#94a3b8">Q1 2027</span></div>
       <div class="phase-spine">
         <div class="phase-dot dot-upcoming"></div>
         <div class="phase-line"></div>
@@ -707,9 +737,9 @@
       </div>
     </div>
 
-    <!-- Phase 13 -->
+    <!-- Phase 14 -->
     <div class="phase">
-      <div class="phase-label">Phase 13<br><span style="font-weight:400;color:#94a3b8">Q4 2026+</span></div>
+      <div class="phase-label">Phase 14<br><span style="font-weight:400;color:#94a3b8">2027+</span></div>
       <div class="phase-spine">
         <div class="phase-dot dot-future"></div>
       </div>
@@ -725,7 +755,7 @@
           <li>GENEVE tunnel encapsulation option alongside VXLAN</li>
           <li>Dedicated DNS service (project-scoped DNS zones)</li>
           <li>Subnet pools (allocate subnets from a pre-defined CIDR range)</li>
-          <li>Kubernetes Helm chart deployment</li>
+          <li>Helm chart validated on a live Kubernetes cluster (chart exists; see Phase 12)</li>
           <li>Prometheus alerting rules &amp; Grafana dashboards</li>
           <li>Terraform provider (PATs are the prerequisite — now complete)</li>
           <li>Comprehensive E2E test suite</li>
@@ -778,12 +808,12 @@
       <tr>
         <td>GENEVE tunneling</td>
         <td><span class="badge badge-future">Future</span></td>
-        <td>OVN supports it; config option to add in Phase 8</td>
+        <td>OVN supports it; config option planned for Phase 14</td>
       </tr>
       <tr>
         <td>Multiple subnets per network / subnet pools</td>
         <td><span class="badge badge-partial">Partial</span></td>
-        <td>Multiple subnets per network ✓; allocation pools per subnet ✓; CIDR-pool auto-allocation (Phase 12)</td>
+        <td>Multiple subnets per network ✓; allocation pools per subnet ✓; CIDR-pool auto-allocation (Phase 14)</td>
       </tr>
       <tr>
         <td>External networks (provider, for NAT + floating IPs)</td>
@@ -837,6 +867,7 @@
         <li><code>make down / make logs</code></li>
         <li>Test host: ubuntu@10.11.3.190</li>
         <li>Config: <code>deploy/docker/pulsar.docker.yaml</code></li>
+        <li>Secrets: <code>deploy/docker/.env</code> (copy <code>.env.example</code>)</li>
       </ul>
     </div>
     <div>
@@ -846,7 +877,7 @@
         <li>systemd units ✓ (<code>deploy/systemd/</code>)</li>
         <li>Docker Compose ✓ (current default)</li>
         <li>Ansible compute node role ✓ (<code>deploy/ansible/</code>)</li>
-        <li>Kubernetes + Helm chart (Phase 13)</li>
+        <li>Kubernetes + Helm chart ◑ (<code>deploy/kubernetes/helm/pulsar</code>; validated in CI, not yet on a live cluster)</li>
       </ul>
     </div>
   </div>
@@ -857,7 +888,7 @@
 <!-- ══════════════════════════════════════════════════════════════════════ -->
 <div class="doc-footer">
   <span>Pulsar IaaS — Internal Engineering Document</span>
-  <span>April 2026 · Phase 11 complete · SSO/OIDC, organizations, per-org IDPs &amp; personal access tokens delivered · Next: quota enforcement + audit logging</span>
+  <span>November 2026 · Phase 12 complete · Security hardening, CI &amp; Helm packaging delivered · Next: quota enforcement + audit logging</span>
 </div>
 
 </body>

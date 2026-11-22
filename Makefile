@@ -15,7 +15,7 @@ TEST_DIR   := /home/ubuntu/pulsar
         up up-local down logs ps \
         docker docker-web docker-local docker-remote migrate-up migrate-down tidy \
         web-install web-build web-dev web-lint build-full \
-        promote-admin
+        promote-admin roadmap-pdf helm-lint
 
 ## Build the single binary
 build:
@@ -177,3 +177,20 @@ promote-admin:
 	ssh $(TEST_HOST) "docker exec -i $$(cd $(TEST_DIR)/deploy/docker && docker compose ps -q postgres) \
 	  psql -U pulsar pulsar -c \
 	  \"UPDATE users SET role = 'admin' WHERE email = '$(EMAIL)'; SELECT id, email, role FROM users WHERE email = '$(EMAIL)';\""
+
+## Export docs/pulsar-roadmap.html to PDF with headless Chrome.
+## Override: make roadmap-pdf CHROME=/path/to/chrome ROADMAP_PDF=out.pdf
+CHROME      ?= /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+ROADMAP_PDF ?= docs/pulsar-roadmap.pdf
+roadmap-pdf:
+	"$(CHROME)" --headless --disable-gpu --no-pdf-header-footer \
+	  --print-to-pdf="$(ROADMAP_PDF)" "file://$(CURDIR)/docs/pulsar-roadmap.html"
+
+## Lint and render the Helm chart (same checks as CI, minus kubeconform)
+HELM_CHART := deploy/kubernetes/helm/pulsar
+helm-lint:
+	helm lint --strict $(HELM_CHART) --set jwt.secret=local-lint-only-0123456789abcdef \
+	  --set infraCompute.enabled=true,infraNetwork.enabled=true,infraStorage.enabled=true
+	helm template pulsar $(HELM_CHART) --set jwt.secret=local-lint-only-0123456789abcdef > /dev/null
+	@! helm template pulsar $(HELM_CHART) > /dev/null 2>&1 || (echo "chart rendered without jwt.secret" && exit 1)
+	@echo "helm chart OK"

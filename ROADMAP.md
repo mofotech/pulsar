@@ -4,6 +4,8 @@ Status as of 2026-11-21.
 
 Legend: ✅ Done · 🔧 Partial / stubbed · ❌ Not started
 
+This file is the source of truth for feature status. `docs/pulsar-roadmap.html` is the stakeholder view (phases, timeline); update it when a phase completes. Export it to PDF with `make roadmap-pdf`.
+
 ---
 
 ## Identity

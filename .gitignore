@@ -11,6 +11,9 @@ web/node_modules/
 # Stray CLI build at repo root (builds belong in bin/)
 /pulsarctl
 
+# Generated roadmap export (make roadmap-pdf)
+docs/pulsar-roadmap.pdf
+
 # Local secrets (see deploy/docker/.env.example)
 .env
 !.env.example

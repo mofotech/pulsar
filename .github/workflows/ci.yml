@@ -70,6 +70,54 @@ jobs:
           path: bin/
           retention-days: 7
 
+  # ── Helm chart: lint, render, schema-validate ─────────────────────────────────
+  helm:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    env:
+      CHART: deploy/kubernetes/helm/pulsar
+      KUBECONFORM_VERSION: v0.6.7
+      K8S_VERSION: "1.30.0"
+      # Throwaway value so the chart renders; the chart requires jwt.secret.
+      CI_JWT: ci-only-not-a-real-secret-0123456789abcdef
+      ALL_INFRA: infraCompute.enabled=true,infraNetwork.enabled=true,infraStorage.enabled=true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSfL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kubeconform
+          kubeconform -v
+
+      - name: helm lint
+        run: helm lint --strict "$CHART" --set jwt.secret="$CI_JWT" --set "$ALL_INFRA"
+
+      - name: Render chart variants
+        run: |
+          mkdir -p rendered
+          # Defaults (bundled etcd + Postgres, chart-managed JWT Secret)
+          helm template pulsar "$CHART" --set jwt.secret="$CI_JWT" > rendered/default.yaml
+          # Every optional component enabled
+          helm template pulsar "$CHART" --set jwt.secret="$CI_JWT" --set "$ALL_INFRA" > rendered/all-infra.yaml
+          # External etcd/Postgres + pre-existing JWT Secret
+          helm template pulsar "$CHART" --set jwt.existingSecret=pulsar-jwt \
+            --set etcd.enabled=false,postgres.enabled=false > rendered/external.yaml
+
+      - name: Chart refuses to render without a JWT secret
+        run: |
+          if helm template pulsar "$CHART" > /dev/null 2>err.txt; then
+            echo "::error::chart rendered without jwt.secret / jwt.existingSecret"; exit 1
+          fi
+          grep -q "jwt.secret is required" err.txt
+
+      - name: kubeconform
+        run: kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" rendered/*.yaml
+
   # ── Web UI: typecheck + build ────────────────────────────────────────────────
   web:
     name: Web build
