@@ -75,6 +75,10 @@ func TestReaderRoleThroughRouter(t *testing.T) {
 	if got, body := call("POST", "/v1/compute/instances", `{}`); got != 403 {
 		t.Fatalf("reader create instance: %d %s, want 403", got, body)
 	}
+	// A GET that grants interactive control of the guest.
+	if got, body := call("GET", "/v1/compute/instances/"+id.New()+"/console", ""); got != 403 || !strings.Contains(body, "PROJECT_READ_ONLY") {
+		t.Fatalf("reader console: %d %s, want 403 PROJECT_READ_ONLY", got, body)
+	}
 
 	got, body := call("POST", "/v1/compute/keypairs", `{"name":"laptop"}`)
 	if got != http.StatusCreated {

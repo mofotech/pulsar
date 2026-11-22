@@ -179,7 +179,8 @@ func newRouter(
 			r.Delete("/instances/{id}", compHandler.DeleteInstance)
 			r.Post("/instances/{id}/action", compHandler.InstanceAction)
 			r.Post("/instances/{id}/reset", compHandler.ResetInstance)
-			r.Get("/instances/{id}/console", compHandler.GetConsole)
+			// A GET, but it grants interactive control: not for readers.
+			r.With(api.RequireProjectWrite).Get("/instances/{id}/console", compHandler.GetConsole)
 			r.Post("/instances/{id}/migrate", compHandler.MigrateInstance)
 			r.Post("/instances/{id}/resize", compHandler.ResizeInstance)
 			r.Post("/instances/{id}/interfaces", compHandler.AttachInterface)

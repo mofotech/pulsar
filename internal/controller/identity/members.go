@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"go.uber.org/zap"
 
 	"github.com/agomez/pulsar/internal/api"
 )
@@ -40,7 +43,7 @@ func (h *Handler) projectAccess(ctx context.Context, projectID string) (projectA
 	}
 	a.exists = true
 
-	platform := api.RoleFromContext(ctx) == "admin" || api.OrgRoleFromContext(ctx) == "platform_admin"
+	platform := api.IsPlatformAdmin(ctx)
 	orgAdmin := api.OrgRoleFromContext(ctx) == "org_admin" && api.OrgIDFromContext(ctx) == a.orgID
 	err = h.db.Pool().QueryRow(ctx,
 		`SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2`,
@@ -63,7 +66,7 @@ func (h *Handler) ListProjectMembers(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	a, err := h.projectAccess(ctx, projectID)
 	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid project id", reqID)
+		h.projectAccessError(w, err, reqID)
 		return
 	}
 	if !a.exists || !a.canView {
@@ -86,6 +89,11 @@ func (h *Handler) ListProjectMembers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		members = append(members, m)
+	}
+	if err := rows.Err(); err != nil {
+		h.log.Error("list project members", zap.Error(err), zap.String("request_id", reqID))
+		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list members", reqID)
+		return
 	}
 	api.WriteJSON(w, http.StatusOK, members, reqID)
 }
@@ -136,7 +144,7 @@ func (h *Handler) setProjectMember(w http.ResponseWriter, r *http.Request, proje
 	defer tx.Rollback(ctx) //nolint:errcheck
 	if role != api.ProjectRoleAdmin {
 		if err := guardLastProjectAdmin(ctx, tx, projectID, userID); err != nil {
-			api.WriteError(w, http.StatusConflict, "LAST_PROJECT_ADMIN", err.Error(), reqID)
+			writeGuardError(w, err, reqID)
 			return
 		}
 	}
@@ -183,7 +191,7 @@ func (h *Handler) removeProjectMember(w http.ResponseWriter, r *http.Request, pr
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	if err := guardLastProjectAdmin(ctx, tx, projectID, userID); err != nil {
-		api.WriteError(w, http.StatusConflict, "LAST_PROJECT_ADMIN", err.Error(), reqID)
+		writeGuardError(w, err, reqID)
 		return
 	}
 	if _, err := tx.Exec(ctx,
@@ -198,13 +206,34 @@ func (h *Handler) removeProjectMember(w http.ResponseWriter, r *http.Request, pr
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// projectAccessError answers 400 for a malformed project id (SQLSTATE
+// 22P02) and logs anything else — timeouts, pool exhaustion — as a 500.
+func (h *Handler) projectAccessError(w http.ResponseWriter, err error, reqID string) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid project id", reqID)
+		return
+	}
+	h.log.Error("project access check", zap.Error(err), zap.String("request_id", reqID))
+	api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check project access", reqID)
+}
+
+// writeGuardError maps a guardLastProjectAdmin error to a response.
+func writeGuardError(w http.ResponseWriter, err error, reqID string) {
+	if errors.Is(err, errLastProjectAdmin) {
+		api.WriteError(w, http.StatusConflict, "LAST_PROJECT_ADMIN", err.Error(), reqID)
+		return
+	}
+	api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check project admins", reqID)
+}
+
 // requireManage writes 404 (project hidden) or 403 and returns false unless
 // the caller may manage the project's membership.
 func (h *Handler) requireManage(w http.ResponseWriter, r *http.Request, projectID string) (projectAccess, bool) {
 	reqID := middleware.GetReqID(r.Context())
 	a, err := h.projectAccess(r.Context(), projectID)
 	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid project id", reqID)
+		h.projectAccessError(w, err, reqID)
 		return a, false
 	}
 	if !a.exists || !a.canView {
@@ -238,8 +267,44 @@ func guardLastProjectAdmin(ctx context.Context, tx pgx.Tx, projectID, userID str
 		admins = append(admins, u)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err // a truncated list must not pass the guard
+	}
 	if len(admins) == 1 && admins[0] == userID {
 		return errLastProjectAdmin
+	}
+	return nil
+}
+
+// guardUserIsNotLastAdminAnywhere fails if userID is the only admin of any
+// project, so deleting the user (which cascades to project_members) can't
+// leave a project with nobody to manage its membership.
+func guardUserIsNotLastAdminAnywhere(ctx context.Context, tx pgx.Tx, userID string) error {
+	rows, err := tx.Query(ctx,
+		`SELECT project_id::text FROM project_members WHERE user_id = $1 AND role = 'admin'`, userID)
+	if err != nil {
+		return err
+	}
+	var projects []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			return err
+		}
+		projects = append(projects, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, p := range projects {
+		if err := guardLastProjectAdmin(ctx, tx, p, userID); err != nil {
+			if errors.Is(err, errLastProjectAdmin) {
+				return fmt.Errorf("%w: user is the only admin of project %s", errLastProjectAdmin, p)
+			}
+			return err
+		}
 	}
 	return nil
 }

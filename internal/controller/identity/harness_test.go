@@ -82,6 +82,7 @@ func newEnvWith(t *testing.T, mutate func(*config.Config)) *env {
 	r.Route("/v1/users", func(r chi.Router) {
 		r.Use(auth)
 		r.Post("/", h.CreateUser)
+		r.Delete("/{id}", h.DeleteUser)
 		r.Put("/{id}/projects/{project_id}", h.GrantProjectAccess)
 		r.Delete("/{id}/projects/{project_id}", h.RevokeProjectAccess)
 	})

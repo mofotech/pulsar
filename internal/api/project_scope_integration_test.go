@@ -129,3 +129,40 @@ func TestProjectScopeRoles(t *testing.T) {
 		t.Errorf("platform admin: %d role=%q, want 200 admin", got, seenRole)
 	}
 }
+
+// One platform-admin rule everywhere (IsPlatformAdmin), and no unchecked
+// mutations when there is no active project.
+func TestProjectScopePlatformAdminAndNoProject(t *testing.T) {
+	db := testutil.Postgres(t)
+	ctx := context.Background()
+	h := ProjectScopeMiddleware(db)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	call := func(role, orgRole, project, method string) (int, string) {
+		c := context.WithValue(ctx, ctxKeyUserID, id.New())
+		c = context.WithValue(c, ctxKeyRole, role)
+		c = context.WithValue(c, ctxKeyOrgRole, orgRole)
+		c = context.WithValue(c, ctxKeyOrgID, id.New())
+		c = context.WithValue(c, ctxKeyProjectID, project)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(method, "/", nil).WithContext(c))
+		return rec.Code, rec.Body.String()
+	}
+
+	// org_role platform_admin with role member: same access as role admin.
+	if got, body := call("member", "platform_admin", id.New(), http.MethodDelete); got != http.StatusOK {
+		t.Errorf("org_role platform_admin: %d %s, want 200", got, body)
+	}
+	// No active project: reads pass (and see nothing), writes are refused.
+	if got, _ := call("member", "org_admin", "", http.MethodGet); got != http.StatusOK {
+		t.Errorf("no project GET: %d, want 200", got)
+	}
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		if got, body := call("member", "org_admin", "", m); got != http.StatusForbidden || !strings.Contains(body, "PROJECT_REQUIRED") {
+			t.Errorf("no project %s: %d %s, want 403 PROJECT_REQUIRED", m, got, body)
+		}
+	}
+	if got, _ := call("admin", "member", "", http.MethodPost); got != http.StatusOK {
+		t.Errorf("platform admin without a project: %d, want 200", got)
+	}
+}

@@ -261,6 +261,13 @@ func OrgIDFromContext(ctx context.Context) string {
 	return v
 }
 
+// IsPlatformAdmin reports whether the caller administers the whole platform
+// (legacy role 'admin' or org_role 'platform_admin'). Every platform-admin
+// check uses this, so project scope and membership management agree.
+func IsPlatformAdmin(ctx context.Context) bool {
+	return RoleFromContext(ctx) == "admin" || OrgRoleFromContext(ctx) == "platform_admin"
+}
+
 // Project roles (project_members.role).
 const (
 	ProjectRoleReader = "reader"
@@ -278,6 +285,21 @@ func ValidProjectRole(r string) bool {
 func ProjectRoleFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyProjectRole).(string)
 	return v
+}
+
+// RequireProjectWrite rejects project readers on a route that is a read by
+// HTTP method but grants more than read access — e.g. GET …/console hands
+// out keyboard-and-mouse control of the guest. Mount it after
+// ProjectScopeMiddleware.
+func RequireProjectWrite(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ProjectRoleFromContext(r.Context()) == ProjectRoleReader {
+			WriteError(w, http.StatusForbidden, "PROJECT_READ_ONLY",
+				"your role in this project is 'reader', which is read-only", middleware.GetReqID(r.Context()))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func isMutatingMethod(m string) bool {
@@ -307,7 +329,7 @@ func ProjectScopeMiddleware(db *postgres.DB) func(http.Handler) http.Handler {
 			reqID := middleware.GetReqID(ctx)
 
 			// Platform admins may access any project in any org.
-			if RoleFromContext(ctx) == "admin" {
+			if IsPlatformAdmin(ctx) {
 				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, ctxKeyProjectRole, ProjectRoleAdmin)))
 				return
 			}
@@ -315,8 +337,14 @@ func ProjectScopeMiddleware(db *postgres.DB) func(http.Handler) http.Handler {
 			userID := UserIDFromContext(ctx)
 			projectID := ProjectIDFromContext(ctx)
 			if userID == "" || projectID == "" {
-				// org_admin with no project yet (fresh org) — let identity routes
-				// through; resource routes will see an empty project and return nothing.
+				// No active project (e.g. an org_admin in a fresh org): reads
+				// pass and see nothing, but there is no project whose role
+				// could authorize a change, so mutations are refused.
+				if isMutatingMethod(r.Method) {
+					WriteError(w, http.StatusForbidden, "PROJECT_REQUIRED",
+						"no active project; select one with the X-Project-Id header", reqID)
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

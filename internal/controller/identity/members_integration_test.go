@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -144,5 +145,28 @@ func TestProjectMembershipManagement(t *testing.T) {
 		if e.memberRole(proj, newbie) != "member" {
 			t.Fatalf("legacy grant role = %q, want member", e.memberRole(proj, newbie))
 		}
+		// A body that doesn't parse is rejected, not treated as "no role".
+		r := e.do(http.MethodPut, e.srv.URL+legacy, tok["orgadmin@acme.test"], json.RawMessage(`{"role": 1}`))
+		expectStatus(t, r, http.StatusBadRequest)
+		if e.memberRole(proj, newbie) != "member" {
+			t.Fatalf("malformed body changed the role to %q", e.memberRole(proj, newbie))
+		}
+	})
+
+	t.Run("deleting a project's only admin is refused", func(t *testing.T) {
+		lonely := e.createProject(org, "lonely")
+		solo := e.createUser("solo@acme.test", userOpts{orgID: org, projectID: home})
+		e.addMember(lonely, solo, "admin")
+		platformHome := e.createProject(org, "ops")
+		e.createUser("root@acme.test", userOpts{orgID: org, role: "admin", orgRole: "platform_admin", projectID: platformHome})
+		root := e.mustLogin("root@acme.test")
+
+		r := e.do(http.MethodDelete, "/v1/users/"+solo, root, nil)
+		expectStatus(t, r, http.StatusConflict)
+		if e.memberRole(lonely, solo) != "admin" {
+			t.Fatal("user deleted despite being the project's only admin")
+		}
+		e.addMember(lonely, member, "admin")
+		expectStatus(t, e.do(http.MethodDelete, "/v1/users/"+solo, root, nil), http.StatusNoContent)
 	})
 }

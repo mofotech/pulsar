@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -855,8 +856,24 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.db.Pool().Exec(ctx,
-		`DELETE FROM users WHERE id = $1`, userID); err != nil {
+	// Deleting the user cascades to project_members; refuse if that would
+	// leave any project without an admin. Same transaction, so a concurrent
+	// demotion can't slip in between the check and the delete.
+	tx, err := h.db.Pool().Begin(ctx)
+	if err != nil {
+		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := guardUserIsNotLastAdminAnywhere(ctx, tx, userID); err != nil {
+		writeGuardError(w, err, reqID)
+		return
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), reqID)
 		return
 	}
@@ -873,7 +890,14 @@ func (h *Handler) GrantProjectAccess(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.Role != "" {
+	// An empty body means the default role; anything else must parse, or
+	// a typo like {"role": "reader",} would silently grant write access.
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON body: "+err.Error(),
+			middleware.GetReqID(r.Context()))
+		return
+	}
+	if req.Role != "" {
 		role = req.Role
 	}
 	if !api.ValidProjectRole(role) {
