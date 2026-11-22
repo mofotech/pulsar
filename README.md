@@ -222,6 +222,34 @@ The Postgres schema is applied automatically on first start via `deploy/docker/i
 
 ---
 
+## Securing the agent gateway (mTLS)
+
+Agents connect to the controller's gRPC gateway (`:9090`). By default this is **plaintext and unauthenticated**: anyone who can reach the port can pose as an agent and receive its tasks. Both sides log a warning at start-up when that's the case. Enable mutual TLS:
+
+```bash
+pulsar certs ca --dir /etc/pulsar/pki                       # once; keep ca.key offline afterwards
+pulsar certs controller --dir /etc/pulsar/pki --dns pulsar.example.com --ip 10.0.0.5
+pulsar certs agent --dir /etc/pulsar/pki --name compute-1    # --name = the agent's node_id
+```
+
+```yaml
+controller:
+  grpc_tls: {ca_cert: /etc/pulsar/pki/ca.crt, cert: /etc/pulsar/pki/controller.crt, key: /etc/pulsar/pki/controller.key}
+agent:
+  node_id: compute-1
+  tls: {ca_cert: /etc/pulsar/pki/ca.crt, cert: /etc/pulsar/pki/compute-1.crt, key: /etc/pulsar/pki/compute-1.key}
+```
+
+- **With `grpc_tls` set, the controller requires:**
+  - TLS 1.3
+  - an agent certificate signed by the CA
+  - a certificate Common Name equal to the `agent_id` the agent reports
+
+  That way one leaked agent key can't impersonate other nodes.
+- **Pillars on the same host share one certificate**, because they share a `node_id`.
+- **`agent.tls.server_name`** overrides the name the agent expects in the controller's certificate. It defaults to the host it dials.
+- **Docker Compose:** see the mTLS section of `deploy/docker/.env.example`.
+
 ## Configuration reference
 
 `deploy/docker/pulsar.docker.yaml` is the canonical config used inside Docker:

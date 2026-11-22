@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/agomez/pulsar/internal/mtls"
 )
 
 type Config struct {
@@ -39,6 +41,10 @@ type ControllerConfig struct {
 	// {vcpus: 64, instances: -1}. -1 = unlimited. Per-project overrides are
 	// set via PUT /v1/projects/{id}/quotas.
 	QuotaDefaults map[string]int `mapstructure:"quota_defaults"`
+	// GRPCTLS enables mutual TLS on the agent gateway (:9090). When set,
+	// agents must present a certificate signed by ca_cert whose Common Name
+	// equals their agent_id. Unset = plaintext (logged as a warning).
+	GRPCTLS TLSConfig `mapstructure:"grpc_tls"`
 }
 
 type EtcdConfig struct {
@@ -59,6 +65,14 @@ type TLSConfig struct {
 	CACert string `mapstructure:"ca_cert"`
 	Cert   string `mapstructure:"cert"`
 	Key    string `mapstructure:"key"`
+	// ServerName (clients only) overrides the name expected in the server's
+	// certificate; defaults to the host part of the address dialed.
+	ServerName string `mapstructure:"server_name"`
+}
+
+// Files converts the config to the mtls package's representation.
+func (t TLSConfig) Files() mtls.Files {
+	return mtls.Files{CACert: t.CACert, Cert: t.Cert, Key: t.Key, ServerName: t.ServerName}
 }
 
 type AgentConfig struct {
@@ -172,6 +186,8 @@ func Load(cfgFile string) (*Config, error) {
 		"controller.postgres.dsn",
 		"controller.oidc_base_url",
 		"controller.oidc_allowed_networks",
+		"controller.grpc_tls.ca_cert", "controller.grpc_tls.cert", "controller.grpc_tls.key",
+		"agent.tls.ca_cert", "agent.tls.cert", "agent.tls.key", "agent.tls.server_name",
 	} {
 		if err := v.BindEnv(key); err != nil {
 			return nil, err
@@ -216,6 +232,9 @@ func (c *ControllerConfig) Validate() error {
 		return errors.New("controller.jwt.secret is a published placeholder value; generate a real one with `openssl rand -hex 32`")
 	case len(s) < MinJWTSecretLen:
 		return fmt.Errorf("controller.jwt.secret must be at least %d bytes (got %d); generate one with `openssl rand -hex 32`", MinJWTSecretLen, len(s))
+	}
+	if err := c.GRPCTLS.Files().Validate(); err != nil {
+		return fmt.Errorf("controller.grpc_tls: %w", err)
 	}
 	for _, n := range c.OIDCAllowedNetworks {
 		if n == "" {
