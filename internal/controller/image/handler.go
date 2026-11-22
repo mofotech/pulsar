@@ -2,8 +2,10 @@ package image
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"time"
 
@@ -30,7 +32,7 @@ func NewHandler(svc *Service, publicURL string, log *zap.Logger) *Handler {
 // canSee: platform admins see every image; others see public images and
 // their active project's private ones.
 func canSee(r *http.Request, img *Image) bool {
-	return api.IsPlatformAdmin(r.Context()) || img.VisibleTo(api.ProjectIDFromContext(r.Context()))
+	return img.UsableBy(r.Context(), api.ProjectIDFromContext(r.Context()))
 }
 
 // List handles GET /v1/images
@@ -68,11 +70,19 @@ func errorCode(status int) string {
 
 // ownership decides who owns a new image. Private images belong to the
 // caller's active project; only platform admins may publish public images,
-// since a public image is offered to every tenant.
+// since a public image is offered to every tenant. With no visibility given,
+// a platform admin publishes to the shared catalogue (as before images had
+// owners) and everyone else creates a private image.
 func ownership(r *http.Request, visibility string) (projectID, vis string, status int, msg string) {
 	ctx := r.Context()
+	if visibility == "" {
+		visibility = VisibilityPrivate
+		if api.IsPlatformAdmin(ctx) {
+			visibility = VisibilityPublic
+		}
+	}
 	switch visibility {
-	case "", VisibilityPrivate:
+	case VisibilityPrivate:
 		p := api.ProjectIDFromContext(ctx)
 		if p == "" {
 			return "", "", http.StatusBadRequest, "select a project to own the image (X-Project-Id)"
@@ -87,6 +97,9 @@ func ownership(r *http.Request, visibility string) (projectID, vis string, statu
 		return "", "", http.StatusBadRequest, "visibility must be 'private' or 'public'"
 	}
 }
+
+// maxFieldSize caps each non-file multipart field.
+const maxFieldSize = 4 << 10
 
 // Create handles POST /v1/images
 // Accepts either:
@@ -107,18 +120,45 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createFromUpload(w http.ResponseWriter, r *http.Request) {
 	reqID := middleware.GetReqID(r.Context())
 
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	// Stream the form instead of ParseMultipartForm, which would spool the
+	// whole (up to maxUploadSize) file to temp disk before any check runs.
+	// The small fields must precede the file part — pulsarctl sends them
+	// first — so name and ownership are validated before a byte of the
+	// image is read.
+	mr, err := r.MultipartReader()
+	if err != nil {
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid multipart form", reqID)
 		return
 	}
+	fields := map[string]string{}
+	var file *multipart.Part
+	for file == nil {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "file field missing", reqID)
+			return
+		}
+		if err != nil {
+			api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid multipart form", reqID)
+			return
+		}
+		if part.FormName() == "file" {
+			file = part
+			break
+		}
+		v, _ := io.ReadAll(io.LimitReader(part, maxFieldSize))
+		fields[part.FormName()] = string(v)
+	}
+	defer file.Close()
 
-	name := r.FormValue("name")
-	format := r.FormValue("format")
+	name := fields["name"]
+	format := fields["format"]
 	if name == "" {
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", "name is required", reqID)
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST",
+			"name is required (send the name, format and visibility fields before the file)", reqID)
 		return
 	}
-	projectID, visibility, status, msg := ownership(r, r.FormValue("visibility"))
+	projectID, visibility, status, msg := ownership(r, fields["visibility"])
 	if status != 0 {
 		api.WriteError(w, status, errorCode(status), msg, reqID)
 		return
@@ -126,13 +166,6 @@ func (h *Handler) createFromUpload(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "qcow2"
 	}
-
-	file, _, err := r.FormFile("file")
-	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", fmt.Sprintf("file field missing: %v", err), reqID)
-		return
-	}
-	defer file.Close()
 
 	img := &Image{
 		Name:       name,

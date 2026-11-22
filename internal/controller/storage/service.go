@@ -1027,7 +1027,7 @@ func (s *Service) getImageURL(ctx context.Context, projectID, imageID string) (s
 	if err := json.Unmarshal([]byte(val), &img); err != nil {
 		return "", fmt.Errorf("parse image record: %w", err)
 	}
-	if !img.VisibleTo(projectID) {
+	if !img.UsableBy(ctx, projectID) {
 		return "", fmt.Errorf("image %s not found", imageID) // don't reveal other projects' images
 	}
 	if img.URL == "" {

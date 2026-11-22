@@ -1,11 +1,14 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -136,9 +139,18 @@ func TestCatalogueAuthorization(t *testing.T) {
 		if got, _ := b.call("DELETE", "/v1/images/"+priv, ""); got != http.StatusNotFound {
 			t.Errorf("other project delete: %d, want 404", got)
 		}
-		// Can't boot it or build a volume from it either.
-		if got, body := b.call("POST", "/v1/compute/instances", `{"name":"x","flavor_id":"nope","image_id":"`+priv+`"}`); got == http.StatusAccepted {
-			t.Errorf("other project booted a private image: %s", body)
+		// Can't boot it or build a volume from it either. A real flavor, so
+		// the request gets as far as the image check.
+		_, fbody := admin.call("POST", "/v1/compute/flavors", `{"name":"f-`+id.New()+`","vcpus":1,"ram_mb":512,"disk_gb":1}`)
+		flavorID := dataID(t, fbody)
+		boot := `{"name":"x","flavor_id":"` + flavorID + `","image_id":"` + priv + `"}`
+		if got, body := b.call("POST", "/v1/compute/instances", boot); got == http.StatusAccepted || !strings.Contains(body, "image not found") {
+			t.Errorf("other project booting a private image: %d %s, want image not found", got, body)
+		}
+		// Platform admins see every image, so they may boot it too (it may
+		// still fail later for lack of agents, but not on the image).
+		if _, body := admin.call("POST", "/v1/compute/instances", boot); strings.Contains(body, "image not found") {
+			t.Errorf("platform admin can't use a private image they can see: %s", body)
 		}
 		got, body = b.call("POST", "/v1/storage/volumes", `{"name":"v","size_gb":1,"image_id":"`+priv+`"}`)
 		if got == http.StatusCreated || got == http.StatusAccepted || !strings.Contains(body, "not found") {
@@ -172,6 +184,60 @@ func TestCatalogueAuthorization(t *testing.T) {
 			t.Errorf("bad visibility: %d, want 400", got)
 		}
 		admin.call("DELETE", "/v1/images/"+pubID, "")
+
+		// No visibility given: an admin publishes to the shared catalogue
+		// (as before images had owners), everyone else gets a private image.
+		got, body = admin.call("POST", "/v1/images", `{"name":"catalogue","url":"https://img.example/c.qcow2"}`)
+		if got != http.StatusCreated || !strings.Contains(body, `"visibility":"public"`) {
+			t.Fatalf("admin register without visibility: %d %s, want public", got, body)
+		}
+		admin.call("DELETE", "/v1/images/"+dataID(t, body), "")
+	})
+
+	t.Run("uploads are authorized before the file is read", func(t *testing.T) {
+		upload := func(c apiClient, fields [][2]string, fileFirst bool) (int, string) {
+			var buf bytes.Buffer
+			mw := multipart.NewWriter(&buf)
+			writeFile := func() {
+				fw, _ := mw.CreateFormFile("file", "disk.qcow2")
+				_, _ = fw.Write(bytes.Repeat([]byte{0}, 1<<20))
+			}
+			if fileFirst {
+				writeFile()
+			}
+			for _, f := range fields {
+				_ = mw.WriteField(f[0], f[1])
+			}
+			if !fileFirst {
+				writeFile()
+			}
+			_ = mw.Close()
+			req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/v1/images", &buf)
+			req.Header.Set("Authorization", "Bearer "+c.token)
+			req.Header.Set("X-Project-Id", c.project)
+			req.Header.Set("Content-Type", mw.FormDataContentType())
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			b, _ := io.ReadAll(res.Body)
+			return res.StatusCode, string(b)
+		}
+		if got, body := upload(a, [][2]string{{"name", "big"}, {"visibility", "public"}}, false); got != http.StatusForbidden {
+			t.Errorf("member public upload: %d %s, want 403", got, body)
+		}
+		if got, body := upload(a, [][2]string{{"name", "late"}}, true); got != http.StatusBadRequest || !strings.Contains(body, "before the file") {
+			t.Errorf("file before fields: %d %s, want 400", got, body)
+		}
+		if entries, _ := os.ReadDir(cfg.Controller.ImageStoreDir); len(entries) != 0 {
+			t.Errorf("rejected uploads left %d files in the image store", len(entries))
+		}
+		got, body := upload(a, [][2]string{{"name", "mine"}, {"format", "qcow2"}}, false)
+		if got != http.StatusCreated || !strings.Contains(body, `"visibility":"private"`) {
+			t.Fatalf("member private upload: %d %s", got, body)
+		}
+		a.call("DELETE", "/v1/images/"+dataID(t, body), "")
 	})
 
 	t.Run("pre-existing images (no owner) remain public", func(t *testing.T) {
@@ -181,8 +247,8 @@ func TestCatalogueAuthorization(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = store.Delete(context.Background(), "/pulsar/images/"+legacy) })
-		if got, _ := b.call("GET", "/v1/images/"+legacy, ""); got != http.StatusOK {
-			t.Errorf("legacy image hidden: %d", got)
+		if got, body := b.call("GET", "/v1/images/"+legacy, ""); got != http.StatusOK || !strings.Contains(body, `"visibility":"public"`) {
+			t.Errorf("legacy image: %d %s, want 200 with its effective visibility", got, body)
 		}
 		if got, _ := b.call("DELETE", "/v1/images/"+legacy, ""); got != http.StatusForbidden {
 			t.Errorf("tenant deleted legacy image: %d, want 403", got)
