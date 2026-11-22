@@ -30,8 +30,8 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | **SSO login page** | ✅ | Two-step login: email entry → password + SSO buttons rendered from IDP lookup |
 | **OIDC callback page** | ✅ | `/auth/callback` stores JWT from query param and redirects to dashboard |
 | **`pulsarctl login sso`** | ✅ | Browser-based OIDC flow; ephemeral loopback server captures token; saves credentials |
-| **Personal access tokens (PATs)** | ✅ | `personal_access_tokens` table; `pat_`-prefixed opaque tokens; bcrypt-hashed at rest; `GET/POST/DELETE /v1/auth/tokens/personal` |
-| **PAT auth in middleware** | ✅ | `AuthMiddleware` detects `pat_` prefix → DB lookup + bcrypt compare; async `last_used_at` tracking |
+| **Personal access tokens (PATs)** | ✅ | `personal_access_tokens` table; `pat_`-prefixed opaque tokens (256-bit random); stored as SHA-256 lookup key (legacy bcrypt rows upgraded on first use); `GET/POST/DELETE /v1/auth/tokens/personal` |
+| **PAT auth in middleware** | ✅ | `AuthMiddleware` detects `pat_` prefix → single indexed SHA-256 lookup (cost independent of PAT count); async `last_used_at` tracking |
 | **`pulsarctl login token`** | ✅ | Stores a PAT as active credentials; validates against `/v1/projects` before saving |
 | **Access Tokens UI page** | ✅ | Create (with expiry picker), list, revoke; one-time token reveal with clipboard copy |
 | **Identity Providers UI page** | ✅ | `IdpPage` — CRUD for org IDPs; toggle enable/disable; domain hint |

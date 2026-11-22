@@ -7,7 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/agomez/pulsar/internal/api"
 	"github.com/agomez/pulsar/internal/testutil"
+	"github.com/agomez/pulsar/pkg/id"
 )
 
 // ── Login (POST /v1/auth/tokens) ────────────────────────────────────────────
@@ -144,12 +148,13 @@ func TestPATLifecycle(t *testing.T) {
 	if strings.Contains(string(list.body), pat.Token) || strings.Contains(string(list.body), `"token"`) {
 		t.Fatalf("listing leaks token value: %s", list.body)
 	}
-	// Only the bcrypt hash is stored.
-	var stored string
+	// Only the SHA-256 lookup key is stored, never the token itself.
+	var sha string
+	var bcryptHash *string
 	_ = e.db.Pool().QueryRow(context.Background(),
-		`SELECT token_hash FROM personal_access_tokens WHERE id = $1`, pat.ID).Scan(&stored)
-	if stored == pat.Token || !strings.HasPrefix(stored, "$2") {
-		t.Fatalf("token stored in a non-bcrypt form: %q", stored)
+		`SELECT token_sha256, token_hash FROM personal_access_tokens WHERE id = $1`, pat.ID).Scan(&sha, &bcryptHash)
+	if sha != api.HashPAT(pat.Token) || bcryptHash != nil {
+		t.Fatalf("stored sha256=%q token_hash=%v; want sha256 of token and no bcrypt hash", sha, bcryptHash)
 	}
 
 	// The PAT authenticates on its own…
@@ -230,4 +235,59 @@ func TestCreateUserAuthorization(t *testing.T) {
 		expectStatus(t, e.do(http.MethodPost, "/v1/users", orgAdmin,
 			map[string]string{"email": "x6@a.test", "org_role": "org_admin"}), http.StatusForbidden)
 	})
+}
+
+// Regression: the PAT path loaded every unexpired PAT of every user and
+// bcrypt-compared each one, so any unauthenticated request carrying a bogus
+// "pat_" token cost (number of PATs × bcrypt) CPU. Lookup is now a single
+// indexed SHA-256 match, so cost no longer grows with the number of PATs.
+func TestPATLookupCostDoesNotGrowWithTokenCount(t *testing.T) {
+	e := newEnv(t)
+	e.createUser("many@example.test", userOpts{})
+	jwtTok := e.mustLogin("many@example.test")
+	const n = 25
+	for i := 0; i < n; i++ {
+		createPAT(t, e, jwtTok, "tok-"+string(rune('a'+i)), nil)
+	}
+
+	bogus := "pat_" + strings.Repeat("A", 43)
+	start := time.Now()
+	const attempts = 3
+	for i := 0; i < attempts; i++ {
+		expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", bogus, nil), http.StatusUnauthorized)
+	}
+	// Old behaviour: n bcrypt compares (~50ms+ each at DefaultCost) per request.
+	per := time.Since(start) / attempts
+	t.Logf("bogus PAT request: %v with %d PATs", per, n)
+	if per > 250*time.Millisecond {
+		t.Fatalf("bogus PAT request took %v with %d PATs stored; lookup must not scan/bcrypt every token", per, n)
+	}
+}
+
+// PATs created before migration 010 only have a bcrypt hash. They must keep
+// working, and are upgraded to the SHA-256 fast path on first use.
+func TestLegacyBcryptPATStillWorksAndIsUpgraded(t *testing.T) {
+	e := newEnv(t)
+	uid := e.createUser("legacy-pat@example.test", userOpts{})
+	raw := "pat_" + strings.Repeat("L", 43)
+	h, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patID := id.New()
+	e.exec(`INSERT INTO personal_access_tokens (id, user_id, name, token_hash) VALUES ($1, $2, 'old', $3)`,
+		patID, uid, string(h))
+
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", raw, nil), http.StatusOK)
+
+	var sha *string
+	var bcryptHash *string
+	_ = e.db.Pool().QueryRow(context.Background(),
+		`SELECT token_sha256, token_hash FROM personal_access_tokens WHERE id = $1`, patID).Scan(&sha, &bcryptHash)
+	if sha == nil || *sha != api.HashPAT(raw) || bcryptHash != nil {
+		t.Fatalf("after first use: sha256=%v token_hash=%v; want upgraded to sha256 only", sha, bcryptHash)
+	}
+	// Works on the fast path afterwards; a wrong token still fails.
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", raw, nil), http.StatusOK)
+	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", raw[:len(raw)-1]+"X", nil), http.StatusUnauthorized)
 }

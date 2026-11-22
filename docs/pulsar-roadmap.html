@@ -338,7 +338,7 @@
         <li class="feat-done"><span class="feat-icon"></span>Organizations (multi-tenant; platform_admin-managed; default <code>pulsar</code> org)</li>
         <li class="feat-done"><span class="feat-icon"></span>OpenID Connect / SSO — per-org IDP config; OIDC authorize + callback; auto-provisioning; <code>federated_identities</code> link table</li>
         <li class="feat-done"><span class="feat-icon"></span>IDP discovery endpoint — <code>GET /v1/auth/idps?email=…</code> for email-to-IDP resolution (domain_hint)</li>
-        <li class="feat-done"><span class="feat-icon"></span>Personal access tokens (PATs) — <code>pat_</code>-prefix opaque tokens; bcrypt-hashed; expiry; <code>last_used_at</code> tracking</li>
+        <li class="feat-done"><span class="feat-icon"></span>Personal access tokens (PATs) — <code>pat_</code>-prefix opaque tokens; SHA-256 indexed lookup; expiry; <code>last_used_at</code> tracking</li>
         <li class="feat-done"><span class="feat-icon"></span>PAT auth in middleware — dual JWT/PAT path in <code>AuthMiddleware</code>; compatible with all API routes</li>
         <li class="feat-done"><span class="feat-icon"></span><code>pulsarctl login sso</code> — browser OIDC flow with ephemeral loopback callback server</li>
         <li class="feat-done"><span class="feat-icon"></span><code>pulsarctl login token</code> — store PAT as active credentials</li>

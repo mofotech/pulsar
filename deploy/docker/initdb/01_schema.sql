@@ -130,7 +130,8 @@ CREATE TABLE IF NOT EXISTS personal_access_tokens (
     id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name        TEXT        NOT NULL,
-    token_hash  TEXT        NOT NULL,       -- bcrypt of the raw token
+    token_hash  TEXT,                       -- legacy bcrypt; cleared on first use
+    token_sha256 TEXT       UNIQUE,         -- SHA-256 hex of the raw token (lookup key)
     last_used_at TIMESTAMPTZ,
     expires_at  TIMESTAMPTZ,               -- NULL = never expires
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),

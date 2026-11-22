@@ -2,12 +2,16 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
@@ -62,41 +66,11 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 				}
 				ctx := r.Context()
 
-				// Fetch all unexpired PATs that could match — then bcrypt-compare.
-				// We scope by token prefix length as a cheap pre-filter (impossible
-				// to query by hash directly), so we pull candidate rows per-user.
-				// In practice a user has very few PATs so this is fast.
-				rows, err := db.Pool().Query(ctx,
-					`SELECT p.id, p.token_hash, p.expires_at,
-					        u.id, u.org_id, u.role, u.org_role, u.project_id
-					   FROM personal_access_tokens p
-					   JOIN users u ON u.id = p.user_id
-					  WHERE (p.expires_at IS NULL OR p.expires_at > now())`)
+				matched, err := lookupPAT(ctx, db, raw)
 				if err != nil {
 					WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "token lookup failed", reqID)
 					return
 				}
-				defer rows.Close()
-
-				type candidate struct {
-					patID, hash, userID, orgID, role, orgRole string
-					projectID                                 *string
-				}
-				var matched *candidate
-				for rows.Next() {
-					var c candidate
-					var expiresAt interface{}
-					if err := rows.Scan(&c.patID, &c.hash, &expiresAt,
-						&c.userID, &c.orgID, &c.role, &c.orgRole, &c.projectID); err != nil {
-						continue
-					}
-					if bcrypt.CompareHashAndPassword([]byte(c.hash), []byte(raw)) == nil {
-						matched = &c
-						break
-					}
-				}
-				rows.Close()
-
 				if matched == nil {
 					WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid or expired token", reqID)
 					return
@@ -169,6 +143,77 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// HashPAT returns the lookup key stored for a personal access token: the hex
+// SHA-256 of the raw token. PATs carry 256 bits of randomness, so a fast
+// unsalted hash is safe here (unlike passwords) and lets the token be found
+// with a single indexed query.
+func HashPAT(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+type patMatch struct {
+	patID, userID, orgID, role, orgRole string
+	projectID                           *string
+}
+
+// lookupPAT resolves a raw PAT to its owner, or returns (nil, nil).
+//
+// Fast path: one indexed lookup by SHA-256, so cost is independent of how
+// many PATs exist. Fallback: rows created before migration 010 only have a
+// bcrypt hash; those (and only those) are compared, and a match is upgraded
+// to the fast path so the fallback set shrinks to nothing as tokens are used.
+func lookupPAT(ctx context.Context, db *postgres.DB, raw string) (*patMatch, error) {
+	const cols = `p.id, u.id, u.org_id, u.role, u.org_role, u.project_id`
+	sum := HashPAT(raw)
+
+	var m patMatch
+	err := db.Pool().QueryRow(ctx, `SELECT `+cols+`
+		   FROM personal_access_tokens p
+		   JOIN users u ON u.id = p.user_id
+		  WHERE p.token_sha256 = $1
+		    AND (p.expires_at IS NULL OR p.expires_at > now())`, sum,
+	).Scan(&m.patID, &m.userID, &m.orgID, &m.role, &m.orgRole, &m.projectID)
+	if err == nil {
+		return &m, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	rows, err := db.Pool().Query(ctx, `SELECT p.token_hash, `+cols+`
+		   FROM personal_access_tokens p
+		   JOIN users u ON u.id = p.user_id
+		  WHERE p.token_sha256 IS NULL AND p.token_hash IS NOT NULL
+		    AND (p.expires_at IS NULL OR p.expires_at > now())`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var found *patMatch
+	for rows.Next() {
+		var hash string
+		var c patMatch
+		if err := rows.Scan(&hash, &c.patID, &c.userID, &c.orgID, &c.role, &c.orgRole, &c.projectID); err != nil {
+			return nil, err
+		}
+		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(raw)) == nil {
+			found = &c
+			break
+		}
+	}
+	rows.Close()
+	if found == nil {
+		return nil, rows.Err()
+	}
+	if _, err := db.Pool().Exec(ctx,
+		`UPDATE personal_access_tokens SET token_sha256 = $1, token_hash = NULL WHERE id = $2`,
+		sum, found.patID); err != nil {
+		return nil, err
+	}
+	return found, nil
 }
 
 // ZapMiddleware logs each request using zap structured logging.

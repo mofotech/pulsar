@@ -1022,19 +1022,15 @@ type createPATResponse struct {
 	Token string `json:"token"` // raw value, returned once only
 }
 
-// generatePATToken creates a cryptographically random token prefixed with "pat_".
-func generatePATToken() (raw, hash string, err error) {
+// generatePATToken creates a cryptographically random token prefixed with
+// "pat_" and the SHA-256 lookup key that is stored instead of the token.
+func generatePATToken() (raw, sha256Hex string, err error) {
 	b := make([]byte, 32)
 	if _, err = rand.Read(b); err != nil {
 		return
 	}
 	raw = "pat_" + base64.RawURLEncoding.EncodeToString(b)
-	h, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.DefaultCost)
-	if err != nil {
-		return
-	}
-	hash = string(h)
-	return
+	return raw, api.HashPAT(raw), nil
 }
 
 // ListPATs returns all personal access tokens for the authenticated user.
@@ -1095,7 +1091,7 @@ func (h *Handler) CreatePAT(w http.ResponseWriter, r *http.Request) {
 
 	var t PersonalAccessToken
 	err = h.db.Pool().QueryRow(ctx,
-		`INSERT INTO personal_access_tokens (id, user_id, name, token_hash, expires_at)
+		`INSERT INTO personal_access_tokens (id, user_id, name, token_sha256, expires_at)
 		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id, name, last_used_at, expires_at, created_at`,
 		id.New(), userID, req.Name, hash, req.ExpiresAt,
