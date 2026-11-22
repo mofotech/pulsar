@@ -176,4 +176,4 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | Ansible compute node role | ✅ | Full role: packages, OVS/OVN, libvirt, LVM thin-pool, Docker, agent deployment |
 | Host / hypervisor metrics export | ❌ | Not started |
 | Audit logging | 🔧 | Postgres schema present; no Go code path writes audit records yet |
-| Quota enforcement | 🔧 | Schema present; no Go code reads or enforces quotas yet |
+| Quota enforcement | ✅ | Instances, vCPUs, RAM, volumes, storage GB, floating IPs, networks, routers. Usage computed live from etcd; per-project etcd lock makes check+create atomic across replicas; `403 QUOTA_EXCEEDED`; defaults via `controller.quota_defaults`, overrides via `PUT /v1/projects/{id}/quotas` / `pulsarctl projects set-quota` (platform admin). No UI yet |

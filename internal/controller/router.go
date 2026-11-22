@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	imagehandler "github.com/agomez/pulsar/internal/controller/image"
 	keypairhandler "github.com/agomez/pulsar/internal/controller/keypair"
 	networkhandler "github.com/agomez/pulsar/internal/controller/network"
+	"github.com/agomez/pulsar/internal/controller/quota"
 	"github.com/agomez/pulsar/internal/controller/registry"
 	storagehandler "github.com/agomez/pulsar/internal/controller/storage"
 	"github.com/agomez/pulsar/internal/store/etcd"
@@ -99,6 +101,13 @@ func newRouter(
 	// OIDC authorize / callback — unauthenticated, browser-facing
 	r.Get("/v1/auth/oidc/{idp_slug}/authorize", idHandler.OIDCAuthorize)
 	r.Get("/v1/auth/oidc/{idp_slug}/callback", idHandler.OIDCCallback)
+	// Quotas: limits in Postgres, usage computed from etcd by each service
+	// (registered below, once the services exist).
+	quotaDefaults, _ := quota.ParseDefaults(cfg.Controller.QuotaDefaults) // validated in NewServer
+	quotaStore := quota.NewPGStore(db, quotaDefaults)
+	quotaEnforcer := quota.NewEnforcer(quotaStore, store, log)
+	quotaHandler := quota.NewHandler(db, quotaStore, quotaEnforcer, quotaDefaults, log)
+
 	r.Route("/v1/projects", func(r chi.Router) {
 		r.Use(api.AuthMiddleware(cfg.Controller.JWT.Secret, store, db))
 		r.Get("/", idHandler.ListProjects)
@@ -106,6 +115,8 @@ func newRouter(
 		r.Get("/{id}", idHandler.GetProject)
 		r.Patch("/{id}", idHandler.UpdateProject)
 		r.Delete("/{id}", idHandler.DeleteProject)
+		r.Get("/{id}/quotas", quotaHandler.Get)
+		r.Put("/{id}/quotas", quotaHandler.Put)
 	})
 	r.Route("/v1/users", func(r chi.Router) {
 		r.Use(api.AuthMiddleware(cfg.Controller.JWT.Secret, store, db))
@@ -139,6 +150,14 @@ func newRouter(
 	kpSvc := keypairhandler.NewService(db)
 	kpHandler := keypairhandler.NewHandler(kpSvc, log)
 	compSvc.SetKeypairService(kpSvc)
+
+	for _, svc := range []interface {
+		SetQuotaEnforcer(*quota.Enforcer)
+		QuotaUsage(context.Context, string) (quota.Usage, error)
+	}{compSvc, storSvc, netSvc} {
+		svc.SetQuotaEnforcer(quotaEnforcer)
+		quotaEnforcer.RegisterUsage(svc.QuotaUsage)
+	}
 
 	r.Route("/v1/compute", func(r chi.Router) {
 		r.Use(api.AuthMiddleware(cfg.Controller.JWT.Secret, store, db))

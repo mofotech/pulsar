@@ -17,6 +17,8 @@ import (
 	"github.com/agomez/pulsar/internal/controller/registry"
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/pkg/id"
+
+	"github.com/agomez/pulsar/internal/controller/quota"
 )
 
 const (
@@ -52,6 +54,7 @@ type taskResult struct {
 
 // Service manages network resource lifecycle: etcd state + OVN task dispatch.
 type Service struct {
+	quota    *quota.Enforcer // nil = no enforcement
 	store    *etcd.Client
 	registry *registry.AgentRegistry
 	log      *zap.Logger
@@ -173,7 +176,12 @@ func (s *Service) CreateNetwork(ctx context.Context, projectID string, req Creat
 		n.VlanID = req.VlanID
 	}
 
-	if err := s.saveNetwork(ctx, n); err != nil {
+	// External (provider) networks are shared infrastructure, not project usage.
+	want := quota.Usage{quota.Networks: 1}
+	if n.External {
+		want = nil
+	}
+	if err := s.quota.Reserve(ctx, projectID, want, func() error { return s.saveNetwork(ctx, n) }); err != nil {
 		return nil, err
 	}
 
@@ -217,6 +225,27 @@ func (s *Service) GetNetwork(ctx context.Context, projectID, networkID string) (
 		return &n, json.Unmarshal([]byte(val), &n)
 	}
 	return nil, fmt.Errorf("network %s not found", networkID)
+}
+
+// SetQuotaEnforcer enables quota checks on network, router and floating IP creation.
+func (s *Service) SetQuotaEnforcer(q *quota.Enforcer) { s.quota = q }
+
+// QuotaUsage reports a project's own networks (not shared external ones),
+// routers and floating IPs.
+func (s *Service) QuotaUsage(ctx context.Context, projectID string) (quota.Usage, error) {
+	u := quota.Usage{}
+	for r, prefix := range map[quota.Resource]string{
+		quota.Networks:    networkKeyPrefix + projectID + "/",
+		quota.Routers:     routerKeyPrefix + projectID + "/",
+		quota.FloatingIPs: floatingIPKeyPrefix + projectID + "/",
+	} {
+		vals, err := s.store.GetPrefix(ctx, prefix)
+		if err != nil {
+			return nil, err
+		}
+		u[r] = len(vals)
+	}
+	return u, nil
 }
 
 func (s *Service) ListNetworks(ctx context.Context, projectID string) ([]*Network, error) {
@@ -765,7 +794,8 @@ func (s *Service) CreateRouter(ctx context.Context, projectID, name string) (*Ro
 		Status:    "building",
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := s.saveRouter(ctx, r); err != nil {
+	if err := s.quota.Reserve(ctx, projectID, quota.Usage{quota.Routers: 1},
+		func() error { return s.saveRouter(ctx, r) }); err != nil {
 		return nil, err
 	}
 	go func() {
@@ -1118,47 +1148,54 @@ func (s *Service) CreateFloatingIP(ctx context.Context, projectID string, req Cr
 	}
 	_ = extNet
 
-	// Allocate an IP from the external subnet.
-	allocatedIPs, err := s.loadAllocatedIPs(ctx, extSub.ID)
-	if err != nil {
-		return nil, err
-	}
-	floatingIP, err := allocateIP(extSub.CIDR, extSub.GatewayIP, allocatedIPs, extSub.AllocationPool)
-	if err != nil {
-		return nil, fmt.Errorf("allocate floating IP: %w", err)
-	}
+	var fip *FloatingIP
+	err = s.quota.Reserve(ctx, projectID, quota.Usage{quota.FloatingIPs: 1}, func() error {
+		// Allocate an IP from the external subnet.
+		allocatedIPs, err := s.loadAllocatedIPs(ctx, extSub.ID)
+		if err != nil {
+			return err
+		}
+		floatingIP, err := allocateIP(extSub.CIDR, extSub.GatewayIP, allocatedIPs, extSub.AllocationPool)
+		if err != nil {
+			return fmt.Errorf("allocate floating IP: %w", err)
+		}
 
-	fipID := id.New()
+		fipID := id.New()
 
-	// Claim the IP by saving a port record (same pattern as router external port).
-	claimMAC, err := GenerateMAC()
+		// Claim the IP by saving a port record (same pattern as router external port).
+		claimMAC, err := GenerateMAC()
+		if err != nil {
+			return err
+		}
+		claimPort := &Port{
+			ID:         id.New(),
+			ProjectID:  projectID,
+			NetworkID:  extNet.ID,
+			SubnetID:   extSub.ID,
+			MACAddress: claimMAC,
+			FixedIPs:   []FixedIP{{SubnetID: extSub.ID, IPAddress: floatingIP}},
+			Status:     "active",
+			DeviceID:   "floatingip:" + fipID,
+			CreatedAt:  time.Now().UTC(),
+		}
+		if err := s.savePort(ctx, claimPort); err != nil {
+			return err
+		}
+
+		fip = &FloatingIP{
+			ID:                fipID,
+			ProjectID:         projectID,
+			ExternalNetworkID: extNet.ID,
+			FloatingIPAddress: floatingIP,
+			Status:            "down",
+		}
+		if err := s.saveFloatingIP(ctx, fip); err != nil {
+			s.store.Delete(ctx, portKeyPrefix+projectID+"/"+claimPort.ID) //nolint:errcheck
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	claimPort := &Port{
-		ID:         id.New(),
-		ProjectID:  projectID,
-		NetworkID:  extNet.ID,
-		SubnetID:   extSub.ID,
-		MACAddress: claimMAC,
-		FixedIPs:   []FixedIP{{SubnetID: extSub.ID, IPAddress: floatingIP}},
-		Status:     "active",
-		DeviceID:   "floatingip:" + fipID,
-		CreatedAt:  time.Now().UTC(),
-	}
-	if err := s.savePort(ctx, claimPort); err != nil {
-		return nil, err
-	}
-
-	fip := &FloatingIP{
-		ID:                fipID,
-		ProjectID:         projectID,
-		ExternalNetworkID: extNet.ID,
-		FloatingIPAddress: floatingIP,
-		Status:            "down",
-	}
-	if err := s.saveFloatingIP(ctx, fip); err != nil {
-		s.store.Delete(ctx, portKeyPrefix+projectID+"/"+claimPort.ID) //nolint:errcheck
 		return nil, err
 	}
 	return fip, nil

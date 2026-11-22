@@ -9,6 +9,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agomez/pulsar/internal/api"
+
+	"github.com/agomez/pulsar/internal/controller/quota"
 )
 
 // Handler exposes storage REST endpoints backed by Service.
@@ -45,6 +47,9 @@ func (h *Handler) CreateVolume(w http.ResponseWriter, r *http.Request) {
 	}
 	vol, err := h.svc.CreateVolume(r.Context(), projectID, req)
 	if err != nil {
+		if quota.WriteIfExceeded(w, err, middleware.GetReqID(r.Context())) {
+			return
+		}
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}
@@ -82,6 +87,9 @@ func (h *Handler) VolumeAction(w http.ResponseWriter, r *http.Request) {
 	}
 	vol, err := h.svc.VolumeAction(r.Context(), projectID, volumeID, req)
 	if err != nil {
+		if quota.WriteIfExceeded(w, err, middleware.GetReqID(r.Context())) {
+			return
+		}
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}

@@ -35,6 +35,10 @@ type ControllerConfig struct {
 	// on-prem Keycloak. Everything else must be a public IP over https.
 	// Env: PULSAR_CONTROLLER_OIDC_ALLOWED_NETWORKS="10.0.0.0/8,192.168.1.5"
 	OIDCAllowedNetworks []string `mapstructure:"oidc_allowed_networks"`
+	// QuotaDefaults overrides the built-in per-project quota defaults, e.g.
+	// {vcpus: 64, instances: -1}. -1 = unlimited. Per-project overrides are
+	// set via PUT /v1/projects/{id}/quotas.
+	QuotaDefaults map[string]int `mapstructure:"quota_defaults"`
 }
 
 type EtcdConfig struct {

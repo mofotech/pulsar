@@ -100,3 +100,19 @@ func TestOIDCAllowedNetworks(t *testing.T) {
 		t.Fatalf("empty oidc_allowed_networks rejected: %v", err)
 	}
 }
+
+func TestQuotaDefaultsFromYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pulsar.yaml")
+	yaml := "controller:\n  quota_defaults:\n    vcpus: 64\n    Instances: -1\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Controller.QuotaDefaults
+	if got["vcpus"] != 64 || got["instances"] != -1 || len(got) != 2 {
+		t.Fatalf("quota_defaults = %v", got)
+	}
+}

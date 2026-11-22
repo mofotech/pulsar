@@ -6,6 +6,7 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
 // Client wraps the etcd v3 client with helpers used throughout Pulsar.
@@ -75,6 +76,27 @@ func (c *Client) GetPrefix(ctx context.Context, prefix string) (map[string]strin
 		result[string(kv.Key)] = string(kv.Value)
 	}
 	return result, nil
+}
+
+// Lock acquires a distributed mutex named key, shared by every controller
+// replica. The lock is tied to a short-lived lease, so a crashed holder
+// releases it automatically. Call the returned func to unlock.
+func (c *Client) Lock(ctx context.Context, key string) (func(), error) {
+	session, err := concurrency.NewSession(c.raw, concurrency.WithTTL(15))
+	if err != nil {
+		return nil, err
+	}
+	m := concurrency.NewMutex(session, key)
+	if err := m.Lock(ctx); err != nil {
+		session.Close() //nolint:errcheck
+		return nil, err
+	}
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		m.Unlock(ctx)   //nolint:errcheck
+		session.Close() //nolint:errcheck
+	}, nil
 }
 
 // Delete removes a key.

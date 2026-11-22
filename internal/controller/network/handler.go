@@ -9,6 +9,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agomez/pulsar/internal/api"
+
+	"github.com/agomez/pulsar/internal/controller/quota"
 )
 
 // Handler exposes network REST endpoints.
@@ -45,6 +47,9 @@ func (h *Handler) CreateNetwork(w http.ResponseWriter, r *http.Request) {
 	projectID := api.ProjectIDFromContext(r.Context())
 	net, err := h.svc.CreateNetwork(r.Context(), projectID, req)
 	if err != nil {
+		if quota.WriteIfExceeded(w, err, middleware.GetReqID(r.Context())) {
+			return
+		}
 		api.WriteError(w, http.StatusUnprocessableEntity, "UNPROCESSABLE", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}
@@ -218,6 +223,9 @@ func (h *Handler) CreateRouter(w http.ResponseWriter, r *http.Request) {
 	projectID := api.ProjectIDFromContext(r.Context())
 	router, err := h.svc.CreateRouter(r.Context(), projectID, req.Name)
 	if err != nil {
+		if quota.WriteIfExceeded(w, err, middleware.GetReqID(r.Context())) {
+			return
+		}
 		api.WriteError(w, http.StatusUnprocessableEntity, "UNPROCESSABLE", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}
@@ -315,6 +323,9 @@ func (h *Handler) CreateFloatingIP(w http.ResponseWriter, r *http.Request) {
 	projectID := api.ProjectIDFromContext(r.Context())
 	fip, err := h.svc.CreateFloatingIP(r.Context(), projectID, CreateFloatingIPRequest{})
 	if err != nil {
+		if quota.WriteIfExceeded(w, err, middleware.GetReqID(r.Context())) {
+			return
+		}
 		api.WriteError(w, http.StatusUnprocessableEntity, "UNPROCESSABLE", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}

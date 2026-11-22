@@ -14,6 +14,8 @@ import (
 	"github.com/agomez/pulsar/internal/controller/registry"
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/pkg/id"
+
+	"github.com/agomez/pulsar/internal/controller/quota"
 )
 
 const (
@@ -39,6 +41,7 @@ type taskResult struct {
 
 // Service manages storage state in etcd and dispatches work to storage/compute agents.
 type Service struct {
+	quota    *quota.Enforcer // nil = no enforcement
 	store    *etcd.Client
 	registry *registry.AgentRegistry
 	log      *zap.Logger
@@ -275,7 +278,8 @@ func (s *Service) CreateVolume(ctx context.Context, projectID string, req Create
 		UpdatedAt:    time.Now().UTC(),
 	}
 
-	if err := s.saveVolume(ctx, vol); err != nil {
+	want := quota.Usage{quota.Volumes: 1, quota.StorageGB: req.SizeGB}
+	if err := s.quota.Reserve(ctx, projectID, want, func() error { return s.saveVolume(ctx, vol) }); err != nil {
 		return nil, err
 	}
 
@@ -318,6 +322,22 @@ func (s *Service) CreateVolume(ctx context.Context, projectID string, req Create
 
 func (s *Service) GetVolume(ctx context.Context, projectID, volumeID string) (*Volume, error) {
 	return s.getVolume(ctx, projectID, volumeID)
+}
+
+// SetQuotaEnforcer enables quota checks on volume create and extend.
+func (s *Service) SetQuotaEnforcer(q *quota.Enforcer) { s.quota = q }
+
+// QuotaUsage reports volumes and their total size for a project.
+func (s *Service) QuotaUsage(ctx context.Context, projectID string) (quota.Usage, error) {
+	vols, err := s.ListVolumes(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	u := quota.Usage{quota.Volumes: len(vols)}
+	for _, v := range vols {
+		u[quota.StorageGB] += v.SizeGB
+	}
+	return u, nil
 }
 
 func (s *Service) ListVolumes(ctx context.Context, projectID string) ([]*Volume, error) {
@@ -704,6 +724,10 @@ func (s *Service) extendVolume(ctx context.Context, projectID, volumeID string, 
 	}
 	if vol.Status == VolumeStatusCreating || vol.Status == VolumeStatusDeleting {
 		return nil, fmt.Errorf("cannot extend volume in status %q", vol.Status)
+	}
+	// Checked, not reserved: the size is saved only after the agent call.
+	if err := s.quota.Check(ctx, projectID, quota.Usage{quota.StorageGB: newSizeGB - vol.SizeGB}); err != nil {
+		return nil, err
 	}
 
 	agent, err := s.pickStorageAgentForVolume(vol)

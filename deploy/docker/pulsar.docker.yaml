@@ -21,6 +21,14 @@ controller:
   # Set to the address the *browser* uses to reach the UI.
   # Injected from PULSAR_OIDC_BASE_URL in deploy/docker/.env.
 
+  # Per-project quota defaults (-1 = unlimited). Omitted resources keep the
+  # built-in defaults: instances 10, vcpus 20, ram_mb 51200, volumes 10,
+  # storage_gb 1000, floating_ips 10, networks 10, routers 10.
+  # Per-project overrides: pulsarctl projects set-quota <project-id> vcpus=40
+  # quota_defaults:
+  #   vcpus: 64
+  #   instances: -1
+
 agent:
   controller_grpc: "controller:9090"
   node_id: "ag-pulsar-1"

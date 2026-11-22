@@ -16,6 +16,7 @@ import (
 	imageservice "github.com/agomez/pulsar/internal/controller/image"
 	keypairservice "github.com/agomez/pulsar/internal/controller/keypair"
 	networkhandler "github.com/agomez/pulsar/internal/controller/network"
+	"github.com/agomez/pulsar/internal/controller/quota"
 	"github.com/agomez/pulsar/internal/controller/registry"
 	storagehandler "github.com/agomez/pulsar/internal/controller/storage"
 	"github.com/agomez/pulsar/internal/store/etcd"
@@ -52,6 +53,7 @@ type Service struct {
 	netSvc              *networkhandler.Service
 	storageSvc          *storagehandler.Service
 	keypairSvc          *keypairservice.Service
+	quota               *quota.Enforcer // nil = no enforcement
 	log                 *zap.Logger
 	mu                  sync.Mutex
 	pendingTasks        map[string]pendingTask        // task_id → pending
@@ -273,7 +275,8 @@ func (s *Service) CreateInstance(ctx context.Context, projectID, userID string, 
 		}
 	}
 
-	if err := s.saveInstance(ctx, inst); err != nil {
+	want := quota.Usage{quota.Instances: 1, quota.VCPUs: flavor.VCPUs, quota.RAMMB: flavor.RamMB}
+	if err := s.quota.Reserve(ctx, projectID, want, func() error { return s.saveInstance(ctx, inst) }); err != nil {
 		return nil, err
 	}
 
@@ -642,6 +645,41 @@ func (s *Service) GetInstance(ctx context.Context, projectID, instanceID string)
 	return &inst, nil
 }
 
+// SetQuotaEnforcer enables quota checks on instance create and resize.
+func (s *Service) SetQuotaEnforcer(q *quota.Enforcer) { s.quota = q }
+
+// QuotaUsage reports instances, vCPUs and RAM held by a project. Every stored
+// instance counts (including error/deleting): records are removed from etcd
+// only once deletion completes.
+func (s *Service) QuotaUsage(ctx context.Context, projectID string) (quota.Usage, error) {
+	vals, err := s.store.GetPrefix(ctx, instanceKeyPrefix+projectID+"/")
+	if err != nil {
+		return nil, err
+	}
+	flavors := map[string]*Flavor{}
+	if fl, err := s.ListFlavors(ctx); err == nil {
+		for _, f := range fl {
+			flavors[f.ID] = f
+		}
+	}
+	u := quota.Usage{}
+	for _, v := range vals {
+		var inst Instance
+		if err := json.Unmarshal([]byte(v), &inst); err != nil {
+			continue
+		}
+		u[quota.Instances]++
+		if f, ok := flavors[inst.FlavorID]; ok {
+			u[quota.VCPUs] += f.VCPUs
+			u[quota.RAMMB] += f.RamMB
+		} else {
+			s.log.Warn("quota: instance references unknown flavor; counting 0 vCPU/RAM",
+				zap.String("instance_id", inst.ID), zap.String("flavor_id", inst.FlavorID))
+		}
+	}
+	return u, nil
+}
+
 func (s *Service) ListInstances(ctx context.Context, projectID string) ([]*Instance, error) {
 	vals, err := s.store.GetPrefix(ctx, instanceKeyPrefix+projectID+"/")
 	if err != nil {
@@ -920,6 +958,14 @@ func (s *Service) ResizeInstance(ctx context.Context, projectID, instanceID stri
 	flavor, err := s.GetFlavor(ctx, req.FlavorID)
 	if err != nil {
 		return nil, fmt.Errorf("flavor not found: %w", err)
+	}
+	// Only growth is checked. The new flavor is recorded when the agent
+	// reports success, so this is a check rather than a reservation.
+	if old, err := s.GetFlavor(ctx, inst.FlavorID); err == nil {
+		delta := quota.Usage{quota.VCPUs: flavor.VCPUs - old.VCPUs, quota.RAMMB: flavor.RamMB - old.RamMB}
+		if err := s.quota.Check(ctx, projectID, delta); err != nil {
+			return nil, err
+		}
 	}
 
 	payload, _ := json.Marshal(map[string]interface{}{

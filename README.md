@@ -519,6 +519,7 @@ The controller exposes a REST API under `/v1`.  All endpoints except `/healthz` 
 | DELETE | /v1/auth/tokens | Revoke JWT |
 | GET/POST | /v1/projects | List / create projects |
 | GET/PATCH/DELETE | /v1/projects/{id} | Get / update / delete project |
+| GET/PUT | /v1/projects/{id}/quotas | Quota limits + live usage / change limits (PUT: platform admin) |
 | GET/POST | /v1/users | List / create users |
 | GET/POST | /v1/compute/instances | List / create instances |
 | GET/DELETE | /v1/compute/instances/{id} | Get / delete instance |

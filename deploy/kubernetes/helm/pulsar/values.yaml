@@ -33,6 +33,11 @@ controller:
   # IdP discovery and token exchange (e.g. an in-cluster Keycloak). By default
   # only public IPs over https are allowed, which blocks SSRF via issuer_url.
   oidcAllowedNetworks: []
+  # quotaDefaults — per-project quota defaults (override per project with
+  # `pulsarctl projects set-quota`). -1 = unlimited. Built-in defaults:
+  # instances 10, vcpus 20, ram_mb 51200, volumes 10, storage_gb 1000,
+  # floating_ips 10, networks 10, routers 10.
+  quotaDefaults: {}
   # consoleVNCHost — host/IP the browser connects to for VNC console.
   consoleVNCHost: ""
   service:

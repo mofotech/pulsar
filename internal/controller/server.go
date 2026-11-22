@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/agomez/pulsar/internal/config"
+	"github.com/agomez/pulsar/internal/controller/quota"
 	"github.com/agomez/pulsar/internal/controller/reconciler"
 	"github.com/agomez/pulsar/internal/controller/registry"
 	"github.com/agomez/pulsar/internal/store/etcd"
@@ -41,6 +42,10 @@ func NewServer(cfg *config.Config, log *zap.Logger) (*Server, error) {
 
 	if err := db.Migrate(context.Background(), log); err != nil {
 		return nil, fmt.Errorf("db migrate: %w", err)
+	}
+
+	if _, err := quota.ParseDefaults(cfg.Controller.QuotaDefaults); err != nil {
+		return nil, fmt.Errorf("config: controller.%w", err)
 	}
 
 	reg := registry.NewAgentRegistry(etcdClient, log)

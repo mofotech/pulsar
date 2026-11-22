@@ -22,6 +22,8 @@ import (
 	"github.com/agomez/pulsar/internal/store/etcd"
 	"github.com/agomez/pulsar/internal/store/postgres"
 	"github.com/agomez/pulsar/pkg/id"
+
+	"github.com/agomez/pulsar/internal/controller/quota"
 )
 
 // consoleToken is a short-lived, single-use token granting WebSocket access to a VNC port.
@@ -93,6 +95,9 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 	userID := api.UserIDFromContext(r.Context())
 	inst, err := h.svc.CreateInstance(r.Context(), projectID, userID, req)
 	if err != nil {
+		if quota.WriteIfExceeded(w, err, middleware.GetReqID(r.Context())) {
+			return
+		}
 		api.WriteError(w, http.StatusUnprocessableEntity, "UNPROCESSABLE", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}
@@ -231,6 +236,9 @@ func (h *Handler) ResizeInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	inst, err := h.svc.ResizeInstance(r.Context(), projectID, instanceID, req)
 	if err != nil {
+		if quota.WriteIfExceeded(w, err, middleware.GetReqID(r.Context())) {
+			return
+		}
 		api.WriteError(w, http.StatusUnprocessableEntity, "RESIZE_FAILED", err.Error(), middleware.GetReqID(r.Context()))
 		return
 	}
