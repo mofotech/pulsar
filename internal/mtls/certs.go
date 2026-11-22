@@ -107,7 +107,8 @@ func writePair(crtPath, keyPath string, der []byte, key *ecdsa.PrivateKey) error
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(crtPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+	// Certificates are public (0644); only private keys are restricted (0600).
+	if err := os.WriteFile(crtPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil { //nolint:gosec // public certificate
 		return err
 	}
 	return os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600)
