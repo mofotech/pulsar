@@ -62,3 +62,41 @@ func TestLoadBindsSecretEnvVars(t *testing.T) {
 		t.Errorf("oidc_base_url = %q, want from env", got)
 	}
 }
+
+func TestOIDCAllowedNetworks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pulsar.yaml")
+	if err := os.WriteFile(path, []byte("controller: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PULSAR_CONTROLLER_OIDC_ALLOWED_NETWORKS", "10.11.0.0/16,192.168.1.5")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Controller.OIDCAllowedNetworks
+	if len(got) != 2 || got[0] != "10.11.0.0/16" || got[1] != "192.168.1.5" {
+		t.Fatalf("oidc_allowed_networks from env = %q", got)
+	}
+
+	c := ControllerConfig{JWT: JWTConfig{Secret: strings.Repeat("a", MinJWTSecretLen)}}
+	c.OIDCAllowedNetworks = []string{"10.0.0.0/8", "192.168.1.5"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid networks rejected: %v", err)
+	}
+	c.OIDCAllowedNetworks = []string{"10.0.0.0/33"}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "oidc_allowed_networks") {
+		t.Fatalf("invalid CIDR accepted: %v", err)
+	}
+
+	// docker-compose passes an empty value when the variable is unset.
+	t.Setenv("PULSAR_CONTROLLER_OIDC_ALLOWED_NETWORKS", "")
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Controller.JWT.Secret = strings.Repeat("a", MinJWTSecretLen)
+	if err := cfg.Controller.Validate(); err != nil {
+		t.Fatalf("empty oidc_allowed_networks rejected: %v", err)
+	}
+}

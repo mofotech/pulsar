@@ -38,6 +38,7 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | **Organizations UI page** | ✅ | `OrgsPage` — platform_admin view; create, suspend, delete orgs |
 | **Project scope middleware** | ✅ | `ProjectScopeMiddleware` validates project membership + org boundary; platform_admin bypasses |
 | **OIDC hardening** | ✅ | `cli_redirect` restricted to loopback; IDP `default_role` limited to member/org_admin; SSO never links accounts across orgs or to admins; IDP slugs globally unique |
+| **IdP SSRF protection** | ✅ | Discovery + token exchange use a client that only connects to public IPs over https, checked on the resolved IP (DNS rebinding/redirects included); internal IdPs need operator-set `controller.oidc_allowed_networks`; fetch errors no longer echoed to unauthenticated callers |
 | User creation authz | ✅ | `POST /v1/users` requires org_admin/platform_admin; home project must be in the user's org |
 | Fine-grained RBAC | 🔧 | Coarse admin/member enforced on identity mutations; no per-resource ownership checks yet |
 

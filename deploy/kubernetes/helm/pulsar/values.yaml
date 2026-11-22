@@ -29,6 +29,10 @@ controller:
   # oidcBaseURL — externally-reachable URL used in OAuth2 redirect_uris.
   # Must match "Valid redirect URIs" registered in your IDP (Keycloak, etc.).
   oidcBaseURL: ""
+  # oidcAllowedNetworks — internal CIDRs/IPs the controller may contact for
+  # IdP discovery and token exchange (e.g. an in-cluster Keycloak). By default
+  # only public IPs over https are allowed, which blocks SSRF via issuer_url.
+  oidcAllowedNetworks: []
   # consoleVNCHost — host/IP the browser connects to for VNC console.
   consoleVNCHost: ""
   service:

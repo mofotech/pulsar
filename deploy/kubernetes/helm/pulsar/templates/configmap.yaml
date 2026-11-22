@@ -27,6 +27,10 @@ data:
       # postgres.dsn injected via PULSAR_CONTROLLER_POSTGRES_DSN env var
       image_store_dir: {{ .Values.controller.imageStoreDir | quote }}
       public_url: {{ .Values.controller.publicURL | quote }}
+      {{- with .Values.controller.oidcAllowedNetworks }}
+      oidc_allowed_networks:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.controller.oidcBaseURL }}
       oidc_base_url: {{ .Values.controller.oidcBaseURL | quote }}
       {{- end }}

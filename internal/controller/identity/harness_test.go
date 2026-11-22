@@ -34,7 +34,16 @@ type env struct {
 	srv   *httptest.Server
 }
 
+// newEnv allows IdP traffic to loopback, where the fake IdPs run.
 func newEnv(t *testing.T) *env {
+	t.Helper()
+	return newEnvWith(t, func(c *config.Config) {
+		c.Controller.OIDCAllowedNetworks = []string{"127.0.0.1/32"}
+	})
+}
+
+// newEnvWith builds an env with production defaults plus mutate.
+func newEnvWith(t *testing.T, mutate func(*config.Config)) *env {
 	t.Helper()
 	db := testutil.Postgres(t)
 	store := testutil.Etcd(t)
@@ -43,6 +52,9 @@ func newEnv(t *testing.T) *env {
 	e.cfg = &config.Config{}
 	e.cfg.Controller.JWT.Secret = testJWTSecret
 	e.cfg.Controller.JWT.Expiry = time.Hour
+	if mutate != nil {
+		mutate(e.cfg)
+	}
 
 	h := NewHandler(e.cfg, db, store, zap.NewNop())
 	auth := api.AuthMiddleware(testJWTSecret, store, db)

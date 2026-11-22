@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/agomez/pulsar/internal/testutil"
@@ -21,15 +22,24 @@ type fakeIDP struct {
 	srv    *httptest.Server
 	mu     sync.Mutex
 	claims map[string]any
+	// tokenEndpoint overrides the token_endpoint advertised in discovery.
+	tokenEndpoint string
+	hits          atomic.Int32
 }
 
 func newFakeIDP(t *testing.T) *fakeIDP {
 	f := &fakeIDP{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		tokenEndpoint := f.srv.URL + "/token"
+		f.mu.Lock()
+		if f.tokenEndpoint != "" {
+			tokenEndpoint = f.tokenEndpoint
+		}
+		f.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"authorization_endpoint": f.srv.URL + "/authorize",
-			"token_endpoint":         f.srv.URL + "/token",
+			"token_endpoint":         tokenEndpoint,
 		})
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +58,10 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 			"access_token": "at", "token_type": "Bearer", "expires_in": 3600, "id_token": idToken,
 		})
 	})
-	f.srv = httptest.NewServer(mux)
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.hits.Add(1)
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -349,4 +362,67 @@ func TestIDPSlugsAreGloballyUnique(t *testing.T) {
 
 	expectStatus(t, e.do(http.MethodPost, "/v1/orgs/"+orgA+"/idps", e.mustLogin("admin@a.test"), body), http.StatusCreated)
 	expectStatus(t, e.do(http.MethodPost, "/v1/orgs/"+orgB+"/idps", e.mustLogin("admin@b.test"), body), http.StatusConflict)
+}
+
+// Regression (SSRF): the controller fetched any issuer_url an org admin
+// configured — from the unauthenticated /authorize endpoint — and echoed the
+// fetch error, so it could be used to probe internal services. Non-public
+// destinations now need the operator's controller.oidc_allowed_networks.
+func TestOIDCIssuerOnInternalNetworkIsBlockedByDefault(t *testing.T) {
+	e := newEnvWith(t, nil) // production default: no allowed internal networks
+	idp := newFakeIDP(t)    // listens on 127.0.0.1
+	e.addIDP(testutil.DefaultOrgID, "internal", idp.srv.URL, "member", true)
+
+	r := e.do(http.MethodGet, "/v1/auth/oidc/internal/authorize", "", nil)
+	expectStatus(t, r, http.StatusBadGateway)
+	body := string(r.body)
+	if !strings.Contains(body, "unreachable or misconfigured") || strings.Contains(body, "127.0.0.1") ||
+		strings.Contains(body, "blocked") || strings.Contains(body, "dial") {
+		t.Fatalf("response leaks fetch details: %q", body)
+	}
+	if n := idp.hits.Load(); n != 0 {
+		t.Fatalf("controller sent %d request(s) to an internal address", n)
+	}
+}
+
+// token_endpoint comes from the IdP's discovery document, so an allowed IdP
+// must not be able to point the controller's token POST somewhere internal.
+func TestOIDCTokenEndpointIsAlsoRestricted(t *testing.T) {
+	e := newEnv(t) // 127.0.0.1 allowed for discovery
+	org := e.createOrg("acme")
+	e.createProject(org, "default")
+	idp := newFakeIDP(t)
+	idp.tokenEndpoint = "http://169.254.169.254/latest/meta-data/iam"
+	e.addIDP(org, "acme", idp.srv.URL, "member", true)
+	idp.setClaims(map[string]any{"sub": "s", "email": "s@acme.test"})
+
+	r := e.ssoLogin("acme", "")
+	expectStatus(t, r, http.StatusBadGateway)
+	if strings.Contains(string(r.body), "169.254") {
+		t.Fatalf("response leaks fetch details: %q", r.body)
+	}
+}
+
+func TestIDPIssuerURLValidatedOnSave(t *testing.T) {
+	e := newEnv(t)
+	org := e.createOrg("acme")
+	e.createUser("admin@acme.test", userOpts{orgID: org, orgRole: "org_admin"})
+	tok := e.mustLogin("admin@acme.test")
+
+	for _, bad := range []string{"file:///etc/passwd", "gopher://x", "https://u:p@idp.example", "not a url"} {
+		r := e.do(http.MethodPost, "/v1/orgs/"+org+"/idps", tok, map[string]any{
+			"name": "x", "issuer_url": bad, "client_id": "c", "client_secret": "s",
+		})
+		if r.status != http.StatusBadRequest {
+			t.Errorf("issuer_url %q: status %d, want 400", bad, r.status)
+		}
+	}
+	ok := e.do(http.MethodPost, "/v1/orgs/"+org+"/idps", tok, map[string]any{
+		"name": "Good", "issuer_url": "https://idp.example", "client_id": "c", "client_secret": "s",
+	})
+	expectStatus(t, ok, http.StatusCreated)
+	var p IdentityProvider
+	ok.json(t, &p)
+	expectStatus(t, e.do(http.MethodPatch, "/v1/orgs/"+org+"/idps/"+p.ID, tok,
+		map[string]any{"issuer_url": "file:///etc/passwd"}), http.StatusBadRequest)
 }

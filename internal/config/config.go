@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -29,6 +30,11 @@ type ControllerConfig struct {
 	// used to construct the OAuth2 redirect_uri sent to IDPs.
 	// Defaults to PublicURL if empty.
 	OIDCBaseURL string `mapstructure:"oidc_base_url"`
+	// OIDCAllowedNetworks lists CIDRs (or IPs) of internal networks the
+	// controller may contact for IdP discovery / token exchange, e.g. an
+	// on-prem Keycloak. Everything else must be a public IP over https.
+	// Env: PULSAR_CONTROLLER_OIDC_ALLOWED_NETWORKS="10.0.0.0/8,192.168.1.5"
+	OIDCAllowedNetworks []string `mapstructure:"oidc_allowed_networks"`
 }
 
 type EtcdConfig struct {
@@ -161,6 +167,7 @@ func Load(cfgFile string) (*Config, error) {
 		"controller.jwt.secret",
 		"controller.postgres.dsn",
 		"controller.oidc_base_url",
+		"controller.oidc_allowed_networks",
 	} {
 		if err := v.BindEnv(key); err != nil {
 			return nil, err
@@ -205,6 +212,17 @@ func (c *ControllerConfig) Validate() error {
 		return errors.New("controller.jwt.secret is a published placeholder value; generate a real one with `openssl rand -hex 32`")
 	case len(s) < MinJWTSecretLen:
 		return fmt.Errorf("controller.jwt.secret must be at least %d bytes (got %d); generate one with `openssl rand -hex 32`", MinJWTSecretLen, len(s))
+	}
+	for _, n := range c.OIDCAllowedNetworks {
+		if n == "" {
+			continue
+		}
+		if _, err := netip.ParsePrefix(n); err == nil {
+			continue
+		}
+		if _, err := netip.ParseAddr(n); err != nil {
+			return fmt.Errorf("controller.oidc_allowed_networks: %q is not a CIDR or IP", n)
+		}
 	}
 	return nil
 }

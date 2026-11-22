@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -217,6 +218,10 @@ func (h *Handler) CreateIDP(w http.ResponseWriter, r *http.Request) {
 			"name, issuer_url, client_id and client_secret are required", reqID)
 		return
 	}
+	if err := validateIssuerURL(req.IssuerURL); err != nil {
+		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), reqID)
+		return
+	}
 	if req.Scopes == "" {
 		req.Scopes = "openid email profile"
 	}
@@ -300,6 +305,12 @@ func (h *Handler) UpdateIDP(w http.ResponseWriter, r *http.Request) {
 	if req.DefaultRole != "" && !allowedDefaultRoles[req.DefaultRole] {
 		api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", errInvalidDefaultRole.Error(), reqID)
 		return
+	}
+	if req.IssuerURL != "" {
+		if err := validateIssuerURL(req.IssuerURL); err != nil {
+			api.WriteError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), reqID)
+			return
+		}
 	}
 
 	ctx := r.Context()
@@ -415,7 +426,10 @@ func (h *Handler) OIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := h.oidcConfig(ctx, idpSlug, clientID, clientSecret, issuerURL, scopes)
 	if err != nil {
-		http.Error(w, "OIDC discovery failed: "+err.Error(), http.StatusBadGateway)
+		// Details stay in the log: this endpoint is unauthenticated, and echoing
+		// fetch errors would map the controller's network for a caller.
+		h.log.Warn("OIDC discovery failed", zap.String("idp", idpSlug), zap.Error(err))
+		http.Error(w, errIDPUnavailable, http.StatusBadGateway)
 		return
 	}
 
@@ -517,12 +531,16 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := h.oidcConfig(ctx, idpSlug, clientID, clientSecret, issuerURL, scopes)
 	if err != nil {
-		http.Error(w, "OIDC discovery failed: "+err.Error(), http.StatusBadGateway)
+		h.log.Warn("OIDC discovery failed", zap.String("idp", idpSlug), zap.Error(err))
+		http.Error(w, errIDPUnavailable, http.StatusBadGateway)
 		return
 	}
-	oauthToken, err := cfg.Exchange(ctx, code)
+	// token_endpoint comes from the (IdP-controlled) discovery document, so the
+	// exchange must use the same restricted client.
+	oauthToken, err := cfg.Exchange(context.WithValue(ctx, oauth2.HTTPClient, h.issuerHTTP), code)
 	if err != nil {
-		http.Error(w, "token exchange failed: "+err.Error(), http.StatusBadGateway)
+		h.log.Warn("OIDC token exchange failed", zap.String("idp", idpSlug), zap.Error(err))
+		http.Error(w, "token exchange with the identity provider failed", http.StatusBadGateway)
 		return
 	}
 
@@ -706,6 +724,10 @@ var allowedDefaultRoles = map[string]bool{"member": true, "org_admin": true}
 
 var errInvalidDefaultRole = errors.New("default_role must be 'member' or 'org_admin'")
 
+// errIDPUnavailable is the only detail unauthenticated callers get when the
+// controller can't reach or parse an IdP; the cause is logged.
+const errIDPUnavailable = "identity provider is unreachable or misconfigured; contact your administrator"
+
 // validateCLIRedirect accepts only http URLs on a loopback host with an
 // explicit port — the shape of pulsarctl's local callback listener.
 func validateCLIRedirect(raw string) error {
@@ -744,7 +766,7 @@ func (h *Handler) oidcBaseURL() string {
 // discovery document from {issuerURL}/.well-known/openid-configuration.
 // idpSlug is used in the redirect URI so the registered URI is human-readable.
 func (h *Handler) oidcConfig(ctx context.Context, idpSlug, clientID, clientSecret, issuerURL, scopes string) (*oauth2.Config, error) {
-	disc, err := fetchOIDCDiscovery(ctx, issuerURL)
+	disc, err := fetchOIDCDiscovery(ctx, h.issuerHTTP, issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("OIDC discovery for %s: %w", issuerURL, err)
 	}
@@ -769,13 +791,13 @@ type oidcDiscovery struct {
 }
 
 // fetchOIDCDiscovery retrieves and parses the OIDC discovery document.
-func fetchOIDCDiscovery(ctx context.Context, issuerURL string) (*oidcDiscovery, error) {
+func fetchOIDCDiscovery(ctx context.Context, client *http.Client, issuerURL string) (*oidcDiscovery, error) {
 	discoveryURL := strings.TrimRight(issuerURL, "/") + "/.well-known/openid-configuration"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -784,7 +806,7 @@ func fetchOIDCDiscovery(ctx context.Context, issuerURL string) (*oidcDiscovery, 
 		return nil, fmt.Errorf("discovery returned HTTP %d", resp.StatusCode)
 	}
 	var disc oidcDiscovery
-	if err := json.NewDecoder(resp.Body).Decode(&disc); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&disc); err != nil {
 		return nil, err
 	}
 	if disc.AuthorizationEndpoint == "" || disc.TokenEndpoint == "" {

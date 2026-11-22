@@ -55,6 +55,7 @@ services:
       PULSAR_CONTROLLER_JWT_SECRET: ${PULSAR_JWT_SECRET:?set PULSAR_JWT_SECRET in deploy/docker/.env (see .env.example)}
       PULSAR_CONTROLLER_POSTGRES_DSN: postgres://pulsar:${POSTGRES_PASSWORD}@postgres/pulsar?sslmode=disable
       PULSAR_CONTROLLER_OIDC_BASE_URL: ${PULSAR_OIDC_BASE_URL:-http://localhost:3000}
+      PULSAR_CONTROLLER_OIDC_ALLOWED_NETWORKS: ${PULSAR_OIDC_ALLOWED_NETWORKS:-}
     ports:
       - "8080:8080"   # REST API
       - "9090:9090"   # gRPC (agent gateway)

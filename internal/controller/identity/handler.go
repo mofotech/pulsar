@@ -32,10 +32,18 @@ type Handler struct {
 	db    *postgres.DB
 	store *etcd.Client
 	log   *zap.Logger
+	// issuerHTTP is the only client allowed to talk to IdPs (SSRF-restricted).
+	issuerHTTP *http.Client
 }
 
 func NewHandler(cfg *config.Config, db *postgres.DB, store *etcd.Client, log *zap.Logger) *Handler {
-	return &Handler{cfg: cfg, db: db, store: store, log: log}
+	allowed, err := parseAllowedNetworks(cfg.Controller.OIDCAllowedNetworks)
+	if err != nil {
+		// config.Validate rejects bad entries at start-up; fail closed if not.
+		log.Error("ignoring controller.oidc_allowed_networks", zap.Error(err))
+		allowed = nil
+	}
+	return &Handler{cfg: cfg, db: db, store: store, log: log, issuerHTTP: newIssuerHTTPClient(allowed)}
 }
 
 type tokenRequest struct {
