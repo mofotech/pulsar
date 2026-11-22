@@ -52,7 +52,7 @@ func call(t *testing.T, srv *httptest.Server, method, path, tok, body string) (i
 func events(t *testing.T, db *postgres.DB) []Event {
 	t.Helper()
 	rows, err := db.Pool().Query(context.Background(), `
-		SELECT id, COALESCE(org_id::text,''), COALESCE(project_id::text,''), COALESCE(user_id::text,''),
+		SELECT id, COALESCE(org_id::text,''), COALESCE(target_org_id::text,''), COALESCE(project_id::text,''), COALESCE(user_id::text,''),
 		       COALESCE(actor_email,''), action, resource_type, COALESCE(resource_id,''), COALESCE(outcome,''),
 		       COALESCE(method,''), COALESCE(route,''), COALESCE(path,''), COALESCE(status,0),
 		       COALESCE(request_id,''), COALESCE(source_ip,'')
@@ -64,7 +64,7 @@ func events(t *testing.T, db *postgres.DB) []Event {
 	var out []Event
 	for rows.Next() {
 		var e Event
-		if err := rows.Scan(&e.ID, &e.OrgID, &e.ProjectID, &e.UserID, &e.ActorEmail, &e.Action, &e.ResourceType,
+		if err := rows.Scan(&e.ID, &e.OrgID, &e.TargetOrgID, &e.ProjectID, &e.UserID, &e.ActorEmail, &e.Action, &e.ResourceType,
 			&e.ResourceID, &e.Outcome, &e.Method, &e.Route, &e.Path, &e.Status, &e.RequestID, &e.SourceIP); err != nil {
 			t.Fatal(err)
 		}
@@ -354,4 +354,135 @@ func TestAuthRoutesFallBackWhenHandlerDoesNotRecord(t *testing.T) {
 			t.Errorf("event %d = %s %s %q, want auth %s %s %q", i, e.Action, e.Outcome, e.ActorEmail, w.action, w.outcome, w.email)
 		}
 	}
+}
+
+func callWith(t *testing.T, srv *httptest.Server, method, path, tok string, hdr map[string]string) int {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(context.Background(), method, srv.URL+path, strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	return res.StatusCode
+}
+
+// A platform admin acting in another org files the event under that org too,
+// so the org's own admin can see it.
+func TestEventsCarryTargetOrg(t *testing.T) {
+	db := testutil.Postgres(t)
+	rec := NewRecorder(db, zap.NewNop())
+	r := chi.NewRouter()
+	r.Use(rec.Middleware)
+	r.Route("/v1/orgs/{org_id}/idps", func(r chi.Router) {
+		r.Use(api.AuthMiddleware(secret, nil, nil))
+		r.Delete("/{idp_id}", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
+	})
+	r.With(api.AuthMiddleware(secret, nil, nil)).Get("/v1/audit", NewHandler(db, zap.NewNop()).List)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	operator, acme := id.New(), id.New()
+	platform := token(t, jwt.MapClaims{"sub": id.New(), "role": "admin", "org_role": "platform_admin", "org_id": operator})
+	call(t, srv, "DELETE", "/v1/orgs/"+acme+"/idps/"+id.New(), platform, "")
+	rec.Record(Event{OrgID: operator, Action: "x", ResourceType: "t", Outcome: Success}) // operator-only
+	rec.Close()
+
+	got := events(t, db)
+	if got[0].OrgID != operator || got[0].TargetOrgID != acme {
+		t.Fatalf("idp delete: org %s target %s, want %s / %s", got[0].OrgID, got[0].TargetOrgID, operator, acme)
+	}
+	if got[1].TargetOrgID != operator {
+		t.Errorf("target defaults to the actor's org, got %q", got[1].TargetOrgID)
+	}
+
+	acmeAdmin := token(t, jwt.MapClaims{"sub": id.New(), "role": "member", "org_role": "org_admin", "org_id": acme})
+	_, body := call(t, srv, "GET", "/v1/audit", acmeAdmin, "")
+	var env struct {
+		Data []Event `json:"data"`
+	}
+	_ = json.Unmarshal([]byte(body), &env)
+	if len(env.Data) != 1 || env.Data[0].Action != "delete" {
+		t.Fatalf("acme's org admin should see exactly the delete in acme: %+v", env.Data)
+	}
+
+	orphan := token(t, jwt.MapClaims{"sub": id.New(), "role": "member", "org_role": "org_admin"})
+	if status, _ := call(t, srv, "GET", "/v1/audit", orphan, ""); status != http.StatusForbidden {
+		t.Errorf("org admin without an org: %d, want 403", status)
+	}
+}
+
+// An X-Project-Id the caller hasn't been validated for is never recorded.
+func TestUnvalidatedProjectHeaderIsNotRecorded(t *testing.T) {
+	db := testutil.Postgres(t)
+	rec := NewRecorder(db, zap.NewNop())
+	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }
+	r := chi.NewRouter()
+	r.Use(rec.Middleware)
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(api.AuthMiddleware(secret, nil, nil))
+		r.Delete("/users/{id}", ok) // no project scope check on this route
+		r.With(api.ProjectScopeMiddleware(db)).Delete("/compute/instances/{id}", ok)
+	})
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	home, victim := id.New(), id.New()
+	tok := token(t, jwt.MapClaims{"sub": id.New(), "role": "member", "org_id": id.New(), "project_id": home})
+	spoof := map[string]string{"X-Project-Id": victim}
+	callWith(t, srv, "DELETE", "/v1/users/u1", tok, nil)
+	callWith(t, srv, "DELETE", "/v1/users/u1", tok, spoof)
+	if s := callWith(t, srv, "DELETE", "/v1/compute/instances/i1", tok, spoof); s != http.StatusForbidden {
+		t.Fatalf("spoofed project: %d, want 403", s)
+	}
+	rec.Close()
+
+	got := events(t, db)
+	if len(got) != 3 {
+		t.Fatalf("recorded %d events, want 3", len(got))
+	}
+	if got[0].ProjectID != home {
+		t.Errorf("token's own project should be recorded, got %q", got[0].ProjectID)
+	}
+	for _, e := range got[1:] {
+		if e.ProjectID != "" {
+			t.Errorf("%s %s recorded unvalidated project %q", e.Method, e.Path, e.ProjectID)
+		}
+	}
+}
+
+// Close waits for requests still in flight, so their events aren't written
+// against a closed pool.
+func TestCloseWaitsForInflightRequests(t *testing.T) {
+	db := testutil.Postgres(t)
+	rec := NewRecorder(db, zap.NewNop())
+	started := make(chan struct{})
+	r := chi.NewRouter()
+	r.Use(rec.Middleware)
+	r.Post("/v1/slow", func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		time.Sleep(300 * time.Millisecond)
+		w.WriteHeader(202)
+	})
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/v1/slow", nil)
+		if res, err := http.DefaultClient.Do(req); err == nil {
+			res.Body.Close()
+		}
+	}()
+	<-started
+	rec.Close() // must not return before the slow request has recorded
+	if got := events(t, db); len(got) != 1 || got[0].Status != 202 {
+		t.Fatalf("in-flight request's event: %+v", got)
+	}
+	<-done
 }

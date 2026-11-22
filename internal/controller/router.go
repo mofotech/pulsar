@@ -38,10 +38,14 @@ func newRouter(
 
 	// Global middleware
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// Forwarding headers are believed only from controller.trusted_proxies
+	// (validated at startup), so clients can't set their audited source IP.
+	trustedProxies, _ := api.ParseNetworks(cfg.Controller.TrustedProxies)
+	r.Use(api.RealIP(trustedProxies))
 	r.Use(middleware.Recoverer)
 	r.Use(api.ZapMiddleware(log))
 	// After RealIP (source address) and before every route's auth middleware.
+	// Recoverer is outside it, so the audit middleware sees panics first.
 	r.Use(auditRec.Middleware)
 
 	// Health check (unauthenticated)

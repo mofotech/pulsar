@@ -65,6 +65,9 @@ func TestClientIP(t *testing.T) {
 		"10.0.0.5:51234": "10.0.0.5",
 		"[::1]:8080":     "::1",
 		"203.0.113.9":    "203.0.113.9", // RealIP already stripped the port
+		"2001:db8::1":    "2001:db8::1", // bare IPv6 from a forwarding header
+		"[2001:db8::1]":  "2001:db8::1",
+		"::1":            "::1",
 	} {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		r.RemoteAddr = addr

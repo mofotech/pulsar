@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
@@ -93,6 +94,14 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(org_role, 'member')
 		   FROM users WHERE email = $1`, req.Email)
 	if err := row.Scan(&userID, &projectID, &passwordHash, &role, &orgID, &orgRole); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			// A database problem, not a bad credential: don't let pool
+			// exhaustion or a timeout look like a credential attack.
+			h.log.Error("login: user lookup", zap.Error(err), zap.String("request_id", middleware.GetReqID(ctx)))
+			h.recordAuth(r, "login", audit.Failure, "", "", req.Email)
+			api.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "login is temporarily unavailable", middleware.GetReqID(ctx))
+			return
+		}
 		// Unknown user — return 401 (don't leak whether email exists).
 		h.recordAuth(r, "login", audit.Denied, "", "", req.Email)
 		api.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials", middleware.GetReqID(ctx))

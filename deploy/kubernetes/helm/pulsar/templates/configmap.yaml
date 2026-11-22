@@ -32,6 +32,10 @@ data:
       quota_defaults:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.controller.trustedProxies }}
+      trusted_proxies:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.controller.oidcAllowedNetworks }}
       oidc_allowed_networks:
         {{- toYaml . | nindent 8 }}

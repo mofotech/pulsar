@@ -25,6 +25,9 @@ func newAuditCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// The server caps a page at 1000; clamp here too so the paging
 			// hint below still fires for --limit 5000.
+			if f.limit < 1 {
+				return fmt.Errorf("--limit must be at least 1")
+			}
 			f.limit = min(f.limit, auditMaxLimit)
 			q := url.Values{}
 			for k, v := range map[string]string{

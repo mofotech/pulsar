@@ -28,8 +28,12 @@ func NewHandler(db *postgres.DB, log *zap.Logger) *Handler {
 
 const maxLimit = 1000
 
+// orgFilter matches events by the actor's org or the affected resource's org.
+const orgFilter = "(org_id = $%[1]d OR target_org_id = $%[1]d)"
+
 // List returns events newest first. Platform admins see everything; org
-// admins see their own org only; everyone else gets 403.
+// admins see events their org's users took or that touched their org's
+// resources (a platform admin acting in it); everyone else gets 403.
 //
 // Query params (all optional): org_id, project_id, user_id, resource_type,
 // resource_id, action, outcome, since, until (RFC 3339), limit (≤1000,
@@ -50,11 +54,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case platform:
 		if v := q.Get("org_id"); v != "" {
-			add("org_id = $%d", v)
+			add(orgFilter, v)
 		}
 	case api.OrgRoleFromContext(ctx) == "org_admin":
+		org := api.OrgIDFromContext(ctx)
+		if org == "" {
+			api.WriteError(w, http.StatusForbidden, "FORBIDDEN", "your account is not in an organization", reqID)
+			return
+		}
 		// Pinned to the caller's org regardless of any org_id param.
-		add("org_id = $%d", api.OrgIDFromContext(ctx))
+		add(orgFilter, org)
 	default:
 		api.WriteError(w, http.StatusForbidden, "FORBIDDEN", "org_admin or platform_admin role required", reqID)
 		return
@@ -93,7 +102,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		limit = min(n, maxLimit)
 	}
 
-	sql := `SELECT id, occurred_at, COALESCE(org_id::text,''), COALESCE(project_id::text,''),
+	sql := `SELECT id, occurred_at, COALESCE(org_id::text,''), COALESCE(target_org_id::text,''),
+	               COALESCE(project_id::text,''),
 	               COALESCE(user_id::text,''), COALESCE(actor_email,''), action, resource_type,
 	               COALESCE(resource_id,''), COALESCE(outcome,''), COALESCE(method,''),
 	               COALESCE(route,''), COALESCE(path,''), COALESCE(status,0),
@@ -114,7 +124,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	events := []Event{}
 	for rows.Next() {
 		var e Event
-		if err := rows.Scan(&e.ID, &e.OccurredAt, &e.OrgID, &e.ProjectID, &e.UserID, &e.ActorEmail,
+		if err := rows.Scan(&e.ID, &e.OccurredAt, &e.OrgID, &e.TargetOrgID, &e.ProjectID, &e.UserID, &e.ActorEmail,
 			&e.Action, &e.ResourceType, &e.ResourceID, &e.Outcome, &e.Method, &e.Route, &e.Path,
 			&e.Status, &e.RequestID, &e.SourceIP, &e.DurationMS); err != nil {
 			h.log.Error("audit list scan", zap.Error(err))

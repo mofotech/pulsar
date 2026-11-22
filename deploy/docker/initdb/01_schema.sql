@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
     path          TEXT,
     status        INT,
     source_ip     TEXT,
-    duration_ms   INT
+    duration_ms   INT,
+    target_org_id UUID        -- org owning the affected resource
 );
 
 CREATE INDEX IF NOT EXISTS audit_events_project_id_idx  ON audit_events(project_id);
@@ -69,6 +70,7 @@ CREATE INDEX IF NOT EXISTS audit_events_resource_id_idx ON audit_events(resource
 CREATE INDEX IF NOT EXISTS audit_events_occurred_at_idx ON audit_events(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_org_time_idx    ON audit_events(org_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_user_time_idx   ON audit_events(user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_target_org_time_idx ON audit_events(target_org_id, occurred_at DESC);
 
 CREATE TABLE IF NOT EXISTS keypairs (
     id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),

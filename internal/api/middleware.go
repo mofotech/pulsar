@@ -33,6 +33,11 @@ const (
 )
 
 // Principal is who an authenticated request acted as.
+//
+// ProjectID is only ever a project the caller is known to be allowed to act
+// in: the token's own project, or an X-Project-Id override once
+// ProjectScopeMiddleware has validated it (or the caller is a platform
+// admin). An unvalidated header never reaches the audit log.
 type Principal struct {
 	UserID, Email, ProjectID, OrgID, Role, OrgRole string
 }
@@ -52,6 +57,22 @@ func fillPrincipalSlot(ctx context.Context, p Principal) {
 	if slot, ok := ctx.Value(principalSlotKey{}).(*Principal); ok {
 		*slot = p
 	}
+}
+
+func setPrincipalProject(ctx context.Context, projectID string) {
+	if slot, ok := ctx.Value(principalSlotKey{}).(*Principal); ok {
+		slot.ProjectID = projectID
+	}
+}
+
+// auditProject is the project to record before ProjectScopeMiddleware has
+// run: the token's own project, unless the client asked for a different one
+// via X-Project-Id — that stays unrecorded until it is validated.
+func auditProject(tokenProject, effective string) string {
+	if effective == tokenProject {
+		return effective
+	}
+	return ""
 }
 
 // AuthMiddleware validates a Bearer token (JWT or PAT) and injects user claims
@@ -109,6 +130,7 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 				if matched.projectID != nil {
 					projectID = *matched.projectID
 				}
+				tokenProject := projectID
 				// Allow X-Project-Id override just like JWTs.
 				if hdr := r.Header.Get("X-Project-Id"); hdr != "" {
 					projectID = hdr
@@ -120,7 +142,7 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 				ctx = context.WithValue(ctx, ctxKeyOrgID, matched.orgID)
 				ctx = context.WithValue(ctx, ctxKeyOrgRole, matched.orgRole)
 				fillPrincipalSlot(ctx, Principal{
-					UserID: matched.userID, Email: matched.email, ProjectID: projectID, OrgID: matched.orgID,
+					UserID: matched.userID, Email: matched.email, ProjectID: auditProject(tokenProject, projectID), OrgID: matched.orgID,
 					Role: matched.role, OrgRole: matched.orgRole,
 				})
 				next.ServeHTTP(w, r.WithContext(ctx))
@@ -158,9 +180,10 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, ctxKeyUserID, claims["sub"])
 
+			tokenProject, _ := claims["project_id"].(string)
 			projectID := r.Header.Get("X-Project-Id")
 			if projectID == "" {
-				projectID, _ = claims["project_id"].(string)
+				projectID = tokenProject
 			}
 			ctx = context.WithValue(ctx, ctxKeyProjectID, projectID)
 			ctx = context.WithValue(ctx, ctxKeyRole, claims["role"])
@@ -168,7 +191,7 @@ func AuthMiddleware(secret string, store *etcd.Client, db *postgres.DB) func(htt
 			ctx = context.WithValue(ctx, ctxKeyOrgRole, claims["org_role"])
 			str := func(k string) string { v, _ := claims[k].(string); return v }
 			fillPrincipalSlot(ctx, Principal{
-				UserID: str("sub"), Email: str("email"), ProjectID: projectID,
+				UserID: str("sub"), Email: str("email"), ProjectID: auditProject(tokenProject, projectID),
 				OrgID: str("org_id"), Role: str("role"), OrgRole: str("org_role"),
 			})
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -309,6 +332,7 @@ func ProjectScopeMiddleware(db *postgres.DB) func(http.Handler) http.Handler {
 
 			// Platform admins may access any project in any org.
 			if RoleFromContext(ctx) == "admin" {
+				setPrincipalProject(ctx, ProjectIDFromContext(ctx))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -343,6 +367,7 @@ func ProjectScopeMiddleware(db *postgres.DB) func(http.Handler) http.Handler {
 				return
 			}
 
+			setPrincipalProject(ctx, projectID) // validated: now safe to audit
 			next.ServeHTTP(w, r)
 		})
 	}

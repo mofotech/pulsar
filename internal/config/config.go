@@ -42,6 +42,13 @@ type ControllerConfig struct {
 	// AuditRetentionDays deletes audit events older than this (default 365;
 	// 0 keeps them forever).
 	AuditRetentionDays int `mapstructure:"audit_retention_days"`
+	// TrustedProxies lists CIDRs (or IPs) of reverse proxies / load
+	// balancers whose X-Forwarded-For / X-Real-IP headers are believed when
+	// recording a request's source address. Requests from anywhere else are
+	// recorded with their real peer address, so clients can't forge it.
+	// Empty (the default) trusts no forwarding headers.
+	// Env: PULSAR_CONTROLLER_TRUSTED_PROXIES="10.0.0.0/8,192.168.1.5"
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type EtcdConfig struct {
@@ -176,6 +183,7 @@ func Load(cfgFile string) (*Config, error) {
 		"controller.postgres.dsn",
 		"controller.oidc_base_url",
 		"controller.oidc_allowed_networks",
+		"controller.trusted_proxies",
 	} {
 		if err := v.BindEnv(key); err != nil {
 			return nil, err
@@ -224,7 +232,14 @@ func (c *ControllerConfig) Validate() error {
 	if c.AuditRetentionDays < 0 {
 		return errors.New("controller.audit_retention_days must be >= 0 (0 = keep forever)")
 	}
-	for _, n := range c.OIDCAllowedNetworks {
+	if err := validateNetworks("controller.oidc_allowed_networks", c.OIDCAllowedNetworks); err != nil {
+		return err
+	}
+	return validateNetworks("controller.trusted_proxies", c.TrustedProxies)
+}
+
+func validateNetworks(key string, entries []string) error {
+	for _, n := range entries {
 		if n == "" {
 			continue
 		}
@@ -232,7 +247,7 @@ func (c *ControllerConfig) Validate() error {
 			continue
 		}
 		if _, err := netip.ParseAddr(n); err != nil {
-			return fmt.Errorf("controller.oidc_allowed_networks: %q is not a CIDR or IP", n)
+			return fmt.Errorf("%s: %q is not a CIDR or IP", key, n)
 		}
 	}
 	return nil

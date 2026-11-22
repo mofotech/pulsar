@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,6 +52,9 @@ func (r *Recorder) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
+		r.inflight.Add(1)
+		defer r.inflight.Add(-1) // after recordRequest (deferred below, runs first)
+
 		ctx, principal := api.WithPrincipalSlot(req.Context())
 		recorded := new(bool)
 		ctx = context.WithValue(ctx, recordedKey{}, recorded)
@@ -65,6 +69,9 @@ func (r *Recorder) Middleware(next http.Handler) http.Handler {
 			ww.Tee(body)
 		}
 		start := time.Now()
+		// Resolve the affected org before the handler runs: after a DELETE
+		// the row that names it is gone.
+		target := r.targetOrg(req)
 		// Record from a defer so a handler that panics (and is turned into a
 		// 500 by Recoverer, mounted outside this middleware) still leaves a
 		// trail: a half-run mutation is exactly what an audit log is for.
@@ -74,12 +81,12 @@ func (r *Recorder) Middleware(next http.Handler) http.Handler {
 				return
 			}
 			p := recover()
-			r.recordRequest(req, ww, body, principal, *recorded, start, http.StatusInternalServerError)
+			r.recordRequest(req, ww, body, principal, target, *recorded, start, http.StatusInternalServerError)
 			panic(p)
 		}()
 		next.ServeHTTP(ww, req)
 		completed = true
-		r.recordRequest(req, ww, body, principal, *recorded, start, 0)
+		r.recordRequest(req, ww, body, principal, target, *recorded, start, 0)
 	})
 }
 
@@ -87,7 +94,7 @@ func (r *Recorder) Middleware(next http.Handler) http.Handler {
 // forceStatus, when non-zero, overrides the status the handler wrote (used
 // for panics, where the handler may have written nothing or a partial 200).
 func (r *Recorder) recordRequest(req *http.Request, ww middleware.WrapResponseWriter, body *capped,
-	principal *api.Principal, handlerDidRecord bool, start time.Time, forceStatus int) {
+	principal *api.Principal, targetOrg string, handlerDidRecord bool, start time.Time, forceStatus int) {
 	rctx := chi.RouteContext(req.Context())
 	route := ""
 	if rctx != nil {
@@ -142,9 +149,13 @@ func (r *Recorder) recordRequest(req *http.Request, ww middleware.WrapResponseWr
 			// action on the parent (as POST …/instances/{id}/resize is).
 			resType, resID, action = resType+"."+action, created, "create"
 		}
+		if targetOrg == "" && action == "create" && resID != "" {
+			targetOrg = r.createdOrg(req, resType, resID)
+		}
 	}
 	r.Record(Event{
 		OrgID:        principal.OrgID,
+		TargetOrgID:  targetOrg,
 		ProjectID:    principal.ProjectID,
 		UserID:       principal.UserID,
 		ActorEmail:   principal.Email,
@@ -247,14 +258,61 @@ func createdID(body []byte) string {
 	return ""
 }
 
-// clientIP is RemoteAddr after chi's RealIP middleware has applied
-// X-Forwarded-For / X-Real-IP; the port is dropped.
+// clientIP is RemoteAddr (after api.RealIP has applied forwarding headers
+// from trusted proxies) without the port. RemoteAddr may be "ip:port",
+// "[v6]:port" or a bare IP — including a bare IPv6 address, which must not
+// be cut at its last colon.
 func clientIP(r *http.Request) string {
-	addr := r.RemoteAddr
-	if i := strings.LastIndex(addr, ":"); i > 0 && !strings.HasSuffix(addr, "]") {
-		addr = addr[:i]
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
-	return strings.Trim(addr, "[]")
+	return strings.Trim(r.RemoteAddr, "[]")
+}
+
+// targetOrg returns the org owning the resource a mutating identity request
+// acts on, when the path names one: /v1/orgs/{id}…, /v1/orgs/{org_id}/…,
+// /v1/projects/{id}…, /v1/users/{id}…. Everything else is resolved at insert
+// time from the validated project, falling back to the actor's org.
+func (r *Recorder) targetOrg(req *http.Request) string {
+	if !isMutating(req.Method) {
+		return ""
+	}
+	segs := strings.Split(strings.Trim(strings.TrimPrefix(req.URL.Path, "/v1/"), "/"), "/")
+	if len(segs) < 2 || uuidOrNil(segs[1]) == nil {
+		return ""
+	}
+	switch segs[0] {
+	case "orgs":
+		return segs[1]
+	case "projects", "users":
+		return r.orgOf(req, segs[0], segs[1])
+	}
+	return ""
+}
+
+// createdOrg resolves the org of a resource the request just created.
+func (r *Recorder) createdOrg(req *http.Request, resType, id string) string {
+	switch resType {
+	case "orgs":
+		return id
+	case "projects", "users":
+		return r.orgOf(req, resType, id)
+	}
+	return ""
+}
+
+// orgOf looks up the org_id column of a project or user. Best effort: on any
+// error the event falls back to the actor's org.
+func (r *Recorder) orgOf(req *http.Request, table, id string) string {
+	if uuidOrNil(id) == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(req.Context(), 2*time.Second)
+	defer cancel()
+	var org string
+	//nolint:gosec // table is one of two constants chosen above, never user input
+	_ = r.db.Pool().QueryRow(ctx, `SELECT COALESCE(org_id::text, '') FROM `+table+` WHERE id = $1`, id).Scan(&org)
+	return org
 }
 
 // capped buffers at most limit bytes and silently discards the rest.

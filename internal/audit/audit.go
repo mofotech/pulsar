@@ -25,6 +25,10 @@ import (
 // fallbacks alike — so a stalled database can't hang requests or shutdown.
 const writeTimeout = 10 * time.Second
 
+// drainTimeout bounds how long Close waits for in-flight audited requests
+// (ones still running after the HTTP server's own shutdown deadline).
+const drainTimeout = 15 * time.Second
+
 // Outcomes.
 const (
 	Success = "success"
@@ -34,23 +38,27 @@ const (
 
 // Event is one audit record.
 type Event struct {
-	ID           int64     `json:"id"`
-	OccurredAt   time.Time `json:"occurred_at"`
-	OrgID        string    `json:"org_id,omitempty"`
-	ProjectID    string    `json:"project_id,omitempty"`
-	UserID       string    `json:"user_id,omitempty"`
-	ActorEmail   string    `json:"actor_email,omitempty"`
-	Action       string    `json:"action"`
-	ResourceType string    `json:"resource_type"`
-	ResourceID   string    `json:"resource_id,omitempty"`
-	Outcome      string    `json:"outcome"`
-	Method       string    `json:"method,omitempty"`
-	Route        string    `json:"route,omitempty"`
-	Path         string    `json:"path,omitempty"`
-	Status       int       `json:"status,omitempty"`
-	RequestID    string    `json:"request_id,omitempty"`
-	SourceIP     string    `json:"source_ip,omitempty"`
-	DurationMS   int       `json:"duration_ms,omitempty"`
+	ID         int64     `json:"id"`
+	OccurredAt time.Time `json:"occurred_at"`
+	OrgID      string    `json:"org_id,omitempty"` // the actor's org
+	// TargetOrgID is the org that owns the affected resource. It differs
+	// from OrgID when a platform admin acts in another org; org admins see
+	// events where either is theirs.
+	TargetOrgID  string `json:"target_org_id,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	UserID       string `json:"user_id,omitempty"`
+	ActorEmail   string `json:"actor_email,omitempty"`
+	Action       string `json:"action"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id,omitempty"`
+	Outcome      string `json:"outcome"`
+	Method       string `json:"method,omitempty"`
+	Route        string `json:"route,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Status       int    `json:"status,omitempty"`
+	RequestID    string `json:"request_id,omitempty"`
+	SourceIP     string `json:"source_ip,omitempty"`
+	DurationMS   int    `json:"duration_ms,omitempty"`
 }
 
 // Recorder writes events to Postgres from a background worker so request
@@ -66,7 +74,8 @@ type Recorder struct {
 	mu     sync.RWMutex // guards closed vs. sends on queue
 	closed bool
 
-	dropped atomic.Int64 // events that could not be written at all
+	dropped  atomic.Int64 // events that could not be written at all
+	inflight atomic.Int64 // requests inside Middleware that have yet to Record
 }
 
 // Dropped reports how many events have been lost because they could not be
@@ -112,10 +121,21 @@ func (r *Recorder) Record(e Event) {
 	}
 }
 
-// Close flushes queued events and stops the writer.
+// Close waits (up to drainTimeout) for in-flight audited requests to record
+// their events, then flushes the queue and stops the writer. Call it before
+// closing the DB pool: a request still running when the HTTP server's
+// shutdown deadline passes would otherwise record against a closed pool.
 func (r *Recorder) Close() {
 	if r == nil {
 		return
+	}
+	deadline := time.Now().Add(drainTimeout)
+	for r.inflight.Load() > 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := r.inflight.Load(); n > 0 {
+		r.log.Warn("audit: shutting down with requests still in flight; their events may be lost",
+			zap.Int64("requests", n))
 	}
 	r.mu.Lock()
 	if !r.closed {
@@ -149,8 +169,8 @@ func (r *Recorder) run() {
 }
 
 // write persists events, bounded by writeTimeout for the batch attempt and
-// again for the fallback (which gets a fresh deadline, so a batch that timed
-// out in Begin still gets its retries).
+// again per event in the fallback, so a batch that timed out in Begin still
+// gets its retries.
 func (r *Recorder) write(events []Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	err := r.writeBatch(ctx, events)
@@ -163,9 +183,7 @@ func (r *Recorder) write(events []Event) {
 		// duplicate events; for an audit log a duplicate beats a gap.
 		r.log.Warn("audit: batch write failed; retrying row by row",
 			zap.Error(err), zap.Int("events", len(events)))
-		ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
-		defer cancel()
-		r.writeEach(ctx, events)
+		r.writeEach(events)
 	}
 }
 
@@ -185,12 +203,16 @@ func (r *Recorder) writeBatch(ctx context.Context, events []Event) error {
 
 // writeEach writes events one at a time, retrying each with backoff, so a
 // transient outage or one bad row doesn't take the rest of the batch with it.
-func (r *Recorder) writeEach(ctx context.Context, events []Event) {
+// Each event gets its own deadline: one write hanging until timeout (say,
+// during a failover) must not use up the time the rest of the batch needs.
+func (r *Recorder) writeEach(events []Event) {
 	for _, e := range events {
+		ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 		err := retry.Do(ctx, 3, 100*time.Millisecond, func() error {
 			_, err := r.db.Pool().Exec(ctx, insertSQL, insertArgs(e)...)
 			return err
 		})
+		cancel()
 		if err != nil {
 			n := r.dropped.Add(1)
 			r.log.Error("audit: dropping unwritable event", zap.Error(err),
@@ -207,16 +229,29 @@ func (r *Recorder) StartRetention(ctx context.Context, retention time.Duration) 
 		return
 	}
 	prune := func() {
-		c, cancel := context.WithTimeout(ctx, time.Minute)
-		defer cancel()
-		tag, err := r.db.Pool().Exec(c,
-			`DELETE FROM audit_events WHERE occurred_at < $1`, time.Now().Add(-retention))
-		if err != nil {
-			r.log.Error("audit retention", zap.Error(err))
-			return
+		// Delete in bounded batches, each with its own timeout: one DELETE
+		// of millions of expired rows could be cancelled (and rolled back)
+		// every day and never make progress.
+		cutoff := time.Now().Add(-retention)
+		var total int64
+		for ctx.Err() == nil {
+			c, cancel := context.WithTimeout(ctx, time.Minute)
+			tag, err := r.db.Pool().Exec(c,
+				`DELETE FROM audit_events WHERE id IN (
+				   SELECT id FROM audit_events WHERE occurred_at < $1 LIMIT $2)`,
+				cutoff, retentionBatch)
+			cancel()
+			if err != nil {
+				r.log.Error("audit retention", zap.Error(err), zap.Int64("deleted_so_far", total))
+				return
+			}
+			total += tag.RowsAffected()
+			if tag.RowsAffected() < retentionBatch {
+				break
+			}
 		}
-		if n := tag.RowsAffected(); n > 0 {
-			r.log.Info("audit retention pruned events", zap.Int64("deleted", n))
+		if total > 0 {
+			r.log.Info("audit retention pruned events", zap.Int64("deleted", total))
 		}
 	}
 	go func() {
@@ -234,18 +269,25 @@ func (r *Recorder) StartRetention(ctx context.Context, retention time.Duration) 
 	}()
 }
 
+// retentionBatch is how many expired events one retention DELETE removes.
+const retentionBatch = 10000
+
+// target_org_id falls back to the org owning the (validated) project, then
+// to the actor's own org.
 const insertSQL = `
 	INSERT INTO audit_events
 	  (occurred_at, org_id, project_id, user_id, actor_email, action, resource_type,
-	   resource_id, outcome, method, route, path, status, request_id, source_ip, duration_ms)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+	   resource_id, outcome, method, route, path, status, request_id, source_ip, duration_ms,
+	   target_org_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+	        COALESCE($17::uuid, (SELECT org_id FROM projects WHERE id = $3::uuid), $2::uuid))`
 
 func insertArgs(e Event) []any {
 	return []any{
 		e.OccurredAt, uuidOrNil(e.OrgID), uuidOrNil(e.ProjectID), uuidOrNil(e.UserID),
 		nilIfEmpty(e.ActorEmail), e.Action, e.ResourceType, nilIfEmpty(e.ResourceID), e.Outcome,
 		nilIfEmpty(e.Method), nilIfEmpty(e.Route), nilIfEmpty(e.Path), e.Status,
-		nilIfEmpty(e.RequestID), nilIfEmpty(e.SourceIP), e.DurationMS,
+		nilIfEmpty(e.RequestID), nilIfEmpty(e.SourceIP), e.DurationMS, uuidOrNil(e.TargetOrgID),
 	}
 }
 

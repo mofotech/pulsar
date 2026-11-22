@@ -16,14 +16,19 @@ ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS path        TEXT;
 ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS status      INT;
 ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS source_ip   TEXT;
 ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS duration_ms INT;
+-- org owning the affected resource (org_id is the actor's org)
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS target_org_id UUID;
 
 CREATE INDEX IF NOT EXISTS audit_events_org_time_idx  ON audit_events (org_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_user_time_idx ON audit_events (user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_target_org_time_idx ON audit_events (target_org_id, occurred_at DESC);
 
 -- +migrate Down
 
+DROP INDEX IF EXISTS audit_events_target_org_time_idx;
 DROP INDEX IF EXISTS audit_events_user_time_idx;
 DROP INDEX IF EXISTS audit_events_org_time_idx;
+ALTER TABLE audit_events DROP COLUMN IF EXISTS target_org_id;
 ALTER TABLE audit_events DROP COLUMN IF EXISTS duration_ms;
 ALTER TABLE audit_events DROP COLUMN IF EXISTS source_ip;
 ALTER TABLE audit_events DROP COLUMN IF EXISTS status;
