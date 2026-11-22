@@ -39,6 +39,16 @@ type ControllerConfig struct {
 	// {vcpus: 64, instances: -1}. -1 = unlimited. Per-project overrides are
 	// set via PUT /v1/projects/{id}/quotas.
 	QuotaDefaults map[string]int `mapstructure:"quota_defaults"`
+	// AuditRetentionDays deletes audit events older than this (default 365;
+	// 0 keeps them forever).
+	AuditRetentionDays int `mapstructure:"audit_retention_days"`
+	// TrustedProxies lists CIDRs (or IPs) of reverse proxies / load
+	// balancers whose X-Forwarded-For / X-Real-IP headers are believed when
+	// recording a request's source address. Requests from anywhere else are
+	// recorded with their real peer address, so clients can't forge it.
+	// Empty (the default) trusts no forwarding headers.
+	// Env: PULSAR_CONTROLLER_TRUSTED_PROXIES="10.0.0.0/8,192.168.1.5"
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type EtcdConfig struct {
@@ -134,6 +144,7 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetDefault("controller.image_store_dir", "/var/lib/pulsar/images-store")
 	v.SetDefault("controller.public_url", "http://localhost:8080")
 	v.SetDefault("controller.console_vnc_host", "host.docker.internal")
+	v.SetDefault("controller.audit_retention_days", 365)
 	v.SetDefault("agent.controller_grpc", "localhost:9090")
 	v.SetDefault("agent.compute.image_cache_dir", "/var/lib/pulsar/images")
 	v.SetDefault("agent.compute.instance_dir", "/var/lib/pulsar/instances")
@@ -172,6 +183,7 @@ func Load(cfgFile string) (*Config, error) {
 		"controller.postgres.dsn",
 		"controller.oidc_base_url",
 		"controller.oidc_allowed_networks",
+		"controller.trusted_proxies",
 	} {
 		if err := v.BindEnv(key); err != nil {
 			return nil, err
@@ -217,7 +229,17 @@ func (c *ControllerConfig) Validate() error {
 	case len(s) < MinJWTSecretLen:
 		return fmt.Errorf("controller.jwt.secret must be at least %d bytes (got %d); generate one with `openssl rand -hex 32`", MinJWTSecretLen, len(s))
 	}
-	for _, n := range c.OIDCAllowedNetworks {
+	if c.AuditRetentionDays < 0 {
+		return errors.New("controller.audit_retention_days must be >= 0 (0 = keep forever)")
+	}
+	if err := validateNetworks("controller.oidc_allowed_networks", c.OIDCAllowedNetworks); err != nil {
+		return err
+	}
+	return validateNetworks("controller.trusted_proxies", c.TrustedProxies)
+}
+
+func validateNetworks(key string, entries []string) error {
+	for _, n := range entries {
 		if n == "" {
 			continue
 		}
@@ -225,7 +247,7 @@ func (c *ControllerConfig) Validate() error {
 			continue
 		}
 		if _, err := netip.ParseAddr(n); err != nil {
-			return fmt.Errorf("controller.oidc_allowed_networks: %q is not a CIDR or IP", n)
+			return fmt.Errorf("%s: %q is not a CIDR or IP", key, n)
 		}
 	}
 	return nil

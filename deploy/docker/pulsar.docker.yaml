@@ -29,6 +29,13 @@ controller:
   #   vcpus: 64
   #   instances: -1
 
+  # Audit events older than this are deleted daily (0 = keep forever).
+  # audit_retention_days: 365
+
+  # Reverse proxies / load balancers (CIDRs or IPs) whose X-Forwarded-For is
+  # believed for the audit log's source_ip. Empty trusts none.
+  # trusted_proxies: ["172.16.0.0/12"]
+
 agent:
   controller_grpc: "controller:9090"
   node_id: "ag-pulsar-1"

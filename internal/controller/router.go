@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agomez/pulsar/internal/api"
+	"github.com/agomez/pulsar/internal/audit"
 	"github.com/agomez/pulsar/internal/config"
 	computehandler "github.com/agomez/pulsar/internal/controller/compute"
 	identityhandler "github.com/agomez/pulsar/internal/controller/identity"
@@ -31,14 +32,21 @@ func newRouter(
 	store *etcd.Client,
 	db *postgres.DB,
 	reg *registry.AgentRegistry,
+	auditRec *audit.Recorder,
 ) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// Forwarding headers are believed only from controller.trusted_proxies
+	// (validated at startup), so clients can't set their audited source IP.
+	trustedProxies, _ := api.ParseNetworks(cfg.Controller.TrustedProxies)
+	r.Use(api.RealIP(trustedProxies))
 	r.Use(middleware.Recoverer)
 	r.Use(api.ZapMiddleware(log))
+	// After RealIP (source address) and before every route's auth middleware.
+	// Recoverer is outside it, so the audit middleware sees panics first.
+	r.Use(auditRec.Middleware)
 
 	// Health check (unauthenticated)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +76,10 @@ func newRouter(
 
 	// Identity
 	idHandler := identityhandler.NewHandler(cfg, db, store, log)
+	idHandler.SetAuditRecorder(auditRec)
+
+	auditHandler := audit.NewHandler(db, log)
+	r.With(api.AuthMiddleware(cfg.Controller.JWT.Secret, store, db)).Get("/v1/audit", auditHandler.List)
 	r.Route("/v1/auth", func(r chi.Router) {
 		r.Post("/tokens", idHandler.CreateToken)
 		r.Delete("/tokens", idHandler.DeleteToken)

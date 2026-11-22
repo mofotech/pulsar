@@ -291,3 +291,30 @@ func TestLegacyBcryptPATStillWorksAndIsUpgraded(t *testing.T) {
 	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", raw, nil), http.StatusOK)
 	expectStatus(t, e.do(http.MethodGet, "/v1/auth/tokens/personal", raw[:len(raw)-1]+"X", nil), http.StatusUnauthorized)
 }
+
+func TestAuthEventsAreAudited(t *testing.T) {
+	e := newEnv(t)
+	uid := e.createUser("audited@example.test", userOpts{})
+
+	expectStatus(t, e.login("audited@example.test", "wrong"), http.StatusUnauthorized)
+	expectStatus(t, e.login("ghost@example.test", "whatever"), http.StatusUnauthorized)
+	tok := e.mustLogin("audited@example.test")
+	expectStatus(t, e.do(http.MethodDelete, "/v1/auth/tokens", tok, nil), http.StatusNoContent)
+
+	want := []string{
+		"login denied audited@example.test " + uid,
+		"login denied ghost@example.test", // unknown user: email recorded, no user id
+		"login success audited@example.test " + uid,
+		"logout success audited@example.test " + uid,
+	}
+	got := e.auditTrail()
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("audit trail:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	var leaks int
+	_ = e.db.Pool().QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM audit_events WHERE row_to_json(audit_events)::text LIKE '%pw-audited%'`).Scan(&leaks)
+	if leaks != 0 {
+		t.Fatal("password appeared in the audit log")
+	}
+}

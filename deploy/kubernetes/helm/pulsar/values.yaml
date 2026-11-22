@@ -38,6 +38,13 @@ controller:
   # instances 10, vcpus 20, ram_mb 51200, volumes 10, storage_gb 1000,
   # floating_ips 10, networks 10, routers 10.
   quotaDefaults: {}
+  # auditRetentionDays — delete audit events older than this (0 = forever).
+  auditRetentionDays: 365
+  # trustedProxies — CIDRs/IPs of the ingress controller / load balancer whose
+  # X-Forwarded-For header is believed for audit source IPs. Empty trusts
+  # none, so audit events record the proxy's address; set this to your
+  # ingress pod CIDR to record real client addresses.
+  trustedProxies: []
   # consoleVNCHost — host/IP the browser connects to for VNC console.
   consoleVNCHost: ""
   service:

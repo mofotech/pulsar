@@ -47,17 +47,30 @@ CREATE TABLE IF NOT EXISTS audit_events (
     project_id    UUID,
     user_id       UUID,
     resource_type TEXT        NOT NULL,
-    resource_id   UUID,
+    resource_id   TEXT,
     action        TEXT        NOT NULL,
     old_state     TEXT,
     new_state     TEXT,
-    request_id    UUID,
-    occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    request_id    TEXT,
+    occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    org_id        UUID,
+    actor_email   TEXT,
+    outcome       TEXT,       -- success | failure | denied
+    method        TEXT,
+    route         TEXT,       -- chi pattern, e.g. /v1/compute/instances/{id}
+    path          TEXT,
+    status        INT,
+    source_ip     TEXT,
+    duration_ms   INT,
+    target_org_id UUID        -- org owning the affected resource
 );
 
 CREATE INDEX IF NOT EXISTS audit_events_project_id_idx  ON audit_events(project_id);
 CREATE INDEX IF NOT EXISTS audit_events_resource_id_idx ON audit_events(resource_id);
 CREATE INDEX IF NOT EXISTS audit_events_occurred_at_idx ON audit_events(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_org_time_idx    ON audit_events(org_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_user_time_idx   ON audit_events(user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_target_org_time_idx ON audit_events(target_org_id, occurred_at DESC);
 
 CREATE TABLE IF NOT EXISTS keypairs (
     id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
