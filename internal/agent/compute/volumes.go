@@ -239,7 +239,7 @@ func (e *Executor) driverForInstance(ctx context.Context, instanceID string) (Hy
 // to 30 seconds (kernel + udev settle time).
 func waitForISCSIDevice(ctx context.Context, iqn string) (string, error) {
 	// Linux by-path names preserve colons in the IQN, e.g.:
-	// ip-10.11.3.190:3260-iscsi-iqn.2026-04.io.pulsar:volume.xxx-lun-1
+	// ip-192.0.2.10:3260-iscsi-iqn.2026-04.io.pulsar:volume.xxx-lun-1
 	iqnPart := iqn
 
 	deadline := time.Now().Add(30 * time.Second)

@@ -301,7 +301,7 @@
   │  --pillar=compute│        │  --pillar=network│          │  --pillar=storage│
   │                  │        │                  │          │                  │
   │  libvirt / KVM ✓ │        │  OVN / OVS    ✓ │          │  LVM ✓           │
-  │  LXD (stub)      │        │  ovn-nbctl CLI   │          │  Ceph (stub)     │
+  │  LXD (planned)   │        │  ovn-nbctl CLI   │          │  Ceph (stub)     │
   │  cloud-init ✓    │        │  VXLAN/VLAN ✓   │          │  NFS (stub)      │
   │  domain_type/    │        │  Security Grps ✓ │          │                  │
   │  emulator cfg ✓  │        │                  │          │                  │
@@ -369,8 +369,7 @@
         <li class="feat-done"><span class="feat-icon"></span>Instance resize (vCPU/RAM hot-add via ACPI balloon; config-only fallback for stopped domains)</li>
         <li class="feat-done"><span class="feat-icon"></span>Live migration (<code>DomainMigratePerform3Params</code>; live + offline modes; non-shared-disk copy)</li>
         <li class="feat-done"><span class="feat-icon"></span>Boot from volume (<code>block_device_mappings</code>; iSCSI export to compute node; <code>delete_on_terminate</code>)</li>
-        <li class="feat-stub"><span class="feat-icon"></span>LXD driver (stub — interface stubs only, REST client not integrated)</li>
-        <li class="feat-no"><span class="feat-icon"></span>LXC / containerd drivers (directory placeholders only)</li>
+        <li class="feat-no"><span class="feat-icon"></span>LXD / LXC / containerd drivers (not started; API rejects these hypervisor types)</li>
         <li class="feat-no"><span class="feat-icon"></span>HA flavors (shared storage evac)</li>
       </ul>
     </div>
@@ -865,7 +864,7 @@
       <ul style="font-size:9.5pt;color:#475569;padding-left:16px;margin-top:6px;">
         <li><code>make up</code> — etcd, postgres, controller, 3 agents</li>
         <li><code>make down / make logs</code></li>
-        <li>Test host: ubuntu@10.11.3.190</li>
+        <li>Test host: <code>TEST_HOST</code> in gitignored <code>local.mk</code></li>
         <li>Config: <code>deploy/docker/pulsar.docker.yaml</code></li>
         <li>Secrets: <code>deploy/docker/.env</code> (copy <code>.env.example</code>)</li>
       </ul>

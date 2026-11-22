@@ -213,6 +213,12 @@ func (s *Service) HandleTaskResult(result *agentpb.TaskResult) {
 
 // CreateInstance schedules and launches a new instance.
 func (s *Service) CreateInstance(ctx context.Context, projectID, userID string, req CreateInstanceRequest) (*Instance, error) {
+	// Reject unschedulable hypervisor types before doing any work.
+	if req.HypervisorType != "" {
+		if err := ValidateHypervisorType(req.HypervisorType); err != nil {
+			return nil, err
+		}
+	}
 	flavor, err := s.GetFlavor(ctx, req.FlavorID)
 	if err != nil {
 		return nil, fmt.Errorf("flavor not found: %w", err)

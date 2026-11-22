@@ -7,15 +7,19 @@ LDFLAGS    := -X $(MODULE)/internal/version.Version=$(VERSION) \
               -X $(MODULE)/internal/version.GitCommit=$(GIT_COMMIT) \
               -X $(MODULE)/internal/version.BuildDate=$(BUILD_DATE)
 
-TEST_HOST  ?= ubuntu@10.11.3.190
-TEST_DIR   := /home/ubuntu/pulsar
+# Remote test host for the *-remote / up / down / logs targets. Set it in a
+# gitignored local.mk (see local.mk.example) or on the command line:
+#   make up-local TEST_HOST=user@host
+-include local.mk
+TEST_HOST  ?=
+TEST_DIR   ?= /home/ubuntu/pulsar
 
 .PHONY: build pulsarctl pulsarctl-linux deploy-pulsarctl proto test test-remote sync-remote lint \
         dev-up dev-down \
         up up-local down logs ps \
         docker docker-web docker-local docker-remote migrate-up migrate-down tidy \
         web-install web-build web-dev web-lint build-full \
-        promote-admin roadmap-pdf helm-lint
+        promote-admin roadmap-pdf helm-lint check-test-host
 
 ## Build the single binary
 build:
@@ -50,7 +54,7 @@ pulsarctl-linux:
 	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/pulsarctl-linux ./cmd/pulsarctl
 
 ## Build linux/amd64 pulsarctl and deploy it to the controller host
-deploy-pulsarctl: pulsarctl-linux
+deploy-pulsarctl: check-test-host pulsarctl-linux
 	scp bin/pulsarctl-linux $(TEST_HOST):$(TEST_DIR)/bin/pulsarctl
 
 ## Generate protobuf Go code (requires protoc + protoc-gen-go + protoc-gen-go-grpc)
@@ -74,7 +78,7 @@ test:
 	go test ./... -race -count=1
 
 ## Sync source to test host and run tests there
-sync-remote:
+sync-remote: check-test-host
 	rsync -av --exclude='.git' --exclude='bin/' --exclude='backup-files/' --exclude='Users/' \
 	  ./ $(TEST_HOST):$(TEST_DIR)/
 
@@ -118,7 +122,7 @@ docker-remote: sync-remote
 	  -t pulsar:dev ."
 
 ## Build both images locally and ship to the test host via docker save | load
-docker-local:
+docker-local: check-test-host
 	docker build \
 	  --platform linux/amd64 \
 	  -f deploy/docker/Dockerfile \
@@ -146,15 +150,15 @@ restart-agent: sync-remote
 	ssh $(TEST_HOST) "cd $(TEST_DIR)/deploy/docker && docker compose up -d --no-build $(SERVICE)"
 
 ## Stop full stack on test host
-down:
+down: check-test-host
 	ssh $(TEST_HOST) "cd $(TEST_DIR)/deploy/docker && docker compose down"
 
 ## Tail logs from all services on test host
-logs:
+logs: check-test-host
 	ssh $(TEST_HOST) "cd $(TEST_DIR)/deploy/docker && docker compose logs -f"
 
 ## Show service status on test host
-ps:
+ps: check-test-host
 	ssh $(TEST_HOST) "cd $(TEST_DIR)/deploy/docker && docker compose ps"
 
 ## Run database migrations (up)
@@ -172,7 +176,7 @@ tidy:
 ## Promote a user to admin by email.
 ## Usage: make promote-admin EMAIL=you@example.com
 ## Works against the running stack on TEST_HOST.
-promote-admin:
+promote-admin: check-test-host
 	@test -n "$(EMAIL)" || (echo "Usage: make promote-admin EMAIL=<user@example.com>" && exit 1)
 	ssh $(TEST_HOST) "docker exec -i $$(cd $(TEST_DIR)/deploy/docker && docker compose ps -q postgres) \
 	  psql -U pulsar pulsar -c \
@@ -194,3 +198,7 @@ helm-lint:
 	helm template pulsar $(HELM_CHART) --set jwt.secret=local-lint-only-0123456789abcdef > /dev/null
 	@! helm template pulsar $(HELM_CHART) > /dev/null 2>&1 || (echo "chart rendered without jwt.secret" && exit 1)
 	@echo "helm chart OK"
+
+## Fail fast when a remote target runs without TEST_HOST configured.
+check-test-host:
+	@test -n "$(TEST_HOST)" || (echo "TEST_HOST is not set. Copy local.mk.example to local.mk and set it, or pass TEST_HOST=user@host." && exit 1)

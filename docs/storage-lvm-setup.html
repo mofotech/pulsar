@@ -321,7 +321,7 @@ ss -tlnp | grep 3260</code></pre>
   storage:
     <span class="cm"># Set to the IP address of this storage host on the network that</span>
     <span class="cm"># compute nodes use to reach it. Auto-detected if left empty.</span>
-    node_ip: "<span class="va">10.11.3.190</span>"
+    node_ip: "<span class="va">192.0.2.10</span>"
     backends:
       lvm:
         volume_group: "<span class="st">pulsar-vg</span>"
@@ -331,7 +331,7 @@ ss -tlnp | grep 3260</code></pre>
   <strong>node_ip:</strong> This is the IP address that will be embedded in iSCSI target
   portals. Compute agents must be able to reach TCP port 3260 on this address.
   In a Docker Compose deployment with <code>network_mode: host</code>, this should be
-  the host's primary network interface IP (e.g. <code>10.11.3.190</code>), not
+  the host's primary network interface IP (e.g. <code>192.0.2.10</code>), not
   <code>127.0.0.1</code>.
 </div>
 
@@ -360,8 +360,8 @@ systemctl enable --now open-iscsi iscsid</code></pre>
   Before starting the Pulsar agents, confirm the compute host can reach the
   storage host's iSCSI port:
 </p>
-<pre><code><span class="cm"># Replace 10.11.3.190 with your storage host IP</span>
-iscsiadm -m discovery -t sendtargets -p 10.11.3.190
+<pre><code><span class="cm"># Replace 192.0.2.10 with your storage host IP</span>
+iscsiadm -m discovery -t sendtargets -p 192.0.2.10
 
 <span class="cm"># If tgtd is running with no targets yet, this will succeed with no output.</span>
 <span class="cm"># If you see "connection refused", check firewall rules (port 3260/tcp).</span></code></pre>
@@ -376,13 +376,13 @@ iscsiadm -m discovery -t sendtargets -p 10.11.3.190
   storage host. If <code>ufw</code> is active:
 </p>
 <pre><code><span class="cm"># On the storage host — allow iSCSI from compute nodes</span>
-ufw allow from <span class="va">10.11.3.0/24</span> to any port 3260 proto tcp
+ufw allow from <span class="va">192.0.2.0/24</span> to any port 3260 proto tcp
 
 <span class="cm"># Or allow from a specific compute host only</span>
-ufw allow from <span class="va">10.11.3.190</span> to any port 3260 proto tcp</code></pre>
+ufw allow from <span class="va">192.0.2.10</span> to any port 3260 proto tcp</code></pre>
 
 <p>If using <code>iptables</code> directly:</p>
-<pre><code>iptables -A INPUT -p tcp --dport 3260 -s <span class="va">10.11.3.0/24</span> -j ACCEPT</code></pre>
+<pre><code>iptables -A INPUT -p tcp --dport 3260 -s <span class="va">192.0.2.0/24</span> -j ACCEPT</code></pre>
 
 <!-- ══════════════════════════════════════════════════════════════════════ -->
 <!--  PART 4 — DOCKER COMPOSE                                              -->
@@ -427,8 +427,8 @@ ufw allow from <span class="va">10.11.3.190</span> to any port 3260 proto tcp</c
   point it at the controller's public IP:
 </p>
 <pre><code>environment:
-  - PULSAR_AGENT_CONTROLLER_GRPC=<span class="va">10.11.3.100</span>:9090   <span class="cm"># controller host IP</span>
-  - PULSAR_AGENT_STORAGE_NODE_IP=<span class="va">10.11.3.200</span>        <span class="cm"># this host's storage IP</span></code></pre>
+  - PULSAR_AGENT_CONTROLLER_GRPC=<span class="va">192.0.2.5</span>:9090   <span class="cm"># controller host IP</span>
+  - PULSAR_AGENT_STORAGE_NODE_IP=<span class="va">192.0.2.20</span>        <span class="cm"># this host's storage IP</span></code></pre>
 
 <!-- ══════════════════════════════════════════════════════════════════════ -->
 <!--  PART 5 — VERIFICATION                                                -->
@@ -581,20 +581,20 @@ tgtadm --lld iscsi --op delete --mode target --tid 1</code></pre>
 
 <h3>Useful iscsiadm commands (on compute host)</h3>
 <pre><code><span class="cm"># Discover targets on a portal</span>
-iscsiadm -m discovery -t sendtargets -p 10.11.3.190
+iscsiadm -m discovery -t sendtargets -p 192.0.2.10
 
 <span class="cm"># Login to a target</span>
 iscsiadm -m node -T iqn.2026-04.io.pulsar:volume.&lt;uuid&gt; \
-  -p 10.11.3.190 --login
+  -p 192.0.2.10 --login
 
 <span class="cm"># List active sessions</span>
 iscsiadm -m session -P 3
 
 <span class="cm"># Logout and delete record</span>
 iscsiadm -m node -T iqn.2026-04.io.pulsar:volume.&lt;uuid&gt; \
-  -p 10.11.3.190 --logout
+  -p 192.0.2.10 --logout
 iscsiadm -m node -T iqn.2026-04.io.pulsar:volume.&lt;uuid&gt; \
-  -p 10.11.3.190 --op delete</code></pre>
+  -p 192.0.2.10 --op delete</code></pre>
 
 <h3>Config file reference</h3>
 <pre><code><span class="cm"># pulsar.yaml — storage agent section</span>

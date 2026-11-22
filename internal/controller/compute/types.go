@@ -1,15 +1,29 @@
 package compute
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type HypervisorType string
 
-const (
-	HypervisorKVM        HypervisorType = "kvm"
-	HypervisorLXD        HypervisorType = "lxd"
-	HypervisorLXC        HypervisorType = "lxc"
-	HypervisorContainerd HypervisorType = "containerd"
-)
+// HypervisorKVM is the only hypervisor with a working agent driver (libvirt).
+// LXD, LXC and containerd are on the roadmap; add them to
+// supportedHypervisors only once an agent driver exists, otherwise instances
+// requesting them can never be scheduled.
+const HypervisorKVM HypervisorType = "kvm"
+
+var supportedHypervisors = map[HypervisorType]bool{
+	HypervisorKVM: true,
+}
+
+// ValidateHypervisorType rejects hypervisor types no agent driver implements.
+func ValidateHypervisorType(ht HypervisorType) error {
+	if supportedHypervisors[ht] {
+		return nil
+	}
+	return fmt.Errorf("hypervisor_type %q is not supported (supported: %s)", ht, HypervisorKVM)
+}
 
 type InstanceState string
 

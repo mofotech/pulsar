@@ -155,7 +155,7 @@ Test coverage includes:
 
 ## Full-stack deployment (test host)
 
-The Makefile targets assume a test host defined by `TEST_HOST` (default `ubuntu@10.11.3.190`).
+The remote Makefile targets use a test host defined by `TEST_HOST`. Set it in a gitignored `local.mk` (copy `local.mk.example`) or pass `TEST_HOST=user@host`.
 
 ```bash
 # Sync source, build image on host, start/update the stack
@@ -247,7 +247,7 @@ cp bin/pulsarctl /usr/local/bin/
 ```bash
 # Log in — stores token in ~/.config/pulsar/config.json
 pulsarctl login \
-  --endpoint http://10.11.3.190:8080 \
+  --endpoint http://pulsar.example.com:8080 \
   --email    admin@pulsar.dev \
   --password secret
 
@@ -277,7 +277,7 @@ pulsarctl compute instances create \
     --flavor   <flavor-id> \
     --image    <image-id> \
     --networks <network-id> \
-    --hypervisor kvm          # kvm | lxd | lxc | containerd (default: kvm)
+    --hypervisor kvm          # only kvm is supported today (default: kvm)
 
 pulsarctl compute instances action   <id> start
 pulsarctl compute instances action   <id> stop
@@ -439,7 +439,7 @@ pulsarctl projects create-user --email dev@example.com [--role member]
 
 ```bash
 # 1. Authenticate
-pulsarctl login --endpoint http://10.11.3.190:8080 --email admin@pulsar.dev --password secret
+pulsarctl login --endpoint http://pulsar.example.com:8080 --email admin@pulsar.dev --password secret
 
 # 2. Create a flavor and register an image
 pulsarctl compute flavors create --name m1.small --vcpus 2 --ram 2048 --disk 20
@@ -517,7 +517,7 @@ The controller exposes Prometheus metrics at `:9091/metrics`. Point your scrape 
 ```yaml
 - job_name: pulsar
   static_configs:
-    - targets: ["10.11.3.190:9091"]
+    - targets: ["192.0.2.10:9091"]
 ```
 
 ---

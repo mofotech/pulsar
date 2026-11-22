@@ -20,7 +20,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&globalEndpoint, "endpoint", "", "Pulsar API endpoint (e.g. http://10.11.3.190:8080)")
+	rootCmd.PersistentFlags().StringVar(&globalEndpoint, "endpoint", "", "Pulsar API endpoint (e.g. http://pulsar.example.com:8080)")
 	rootCmd.PersistentFlags().StringVar(&globalToken, "token", "", "Bearer token (overrides stored credentials)")
 	rootCmd.PersistentFlags().BoolVar(&globalJSON, "json", false, "Output raw JSON")
 
@@ -90,7 +90,7 @@ use it without needing to pass --token every time.
 
 Create a PAT in the web UI under Identity → Access Tokens, then run:
 
-  pulsarctl login token --endpoint http://10.11.3.190:8080 --token pat_...`,
+  pulsarctl login token --endpoint http://pulsar.example.com:8080 --token pat_...`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if endpoint == "" {
 				return fmt.Errorf("--endpoint is required")
@@ -109,7 +109,7 @@ Create a PAT in the web UI under Identity → Access Tokens, then run:
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "API endpoint (e.g. http://10.11.3.190:8080)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "API endpoint (e.g. http://pulsar.example.com:8080)")
 	cmd.Flags().StringVar(&token, "token", "", "Personal access token (pat_...)")
 	cmd.MarkFlagRequired("endpoint") //nolint:errcheck
 	cmd.MarkFlagRequired("token")    //nolint:errcheck

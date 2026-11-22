@@ -362,9 +362,10 @@ function StepInfo({
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="kvm">KVM (hardware-accelerated)</SelectItem>
-            <SelectItem value="lxd">LXD (container)</SelectItem>
-            <SelectItem value="lxc">LXC (container)</SelectItem>
-            <SelectItem value="containerd">containerd</SelectItem>
+            {/* Not yet implemented by any agent driver; the API rejects them. */}
+            <SelectItem value="lxd" disabled>LXD (container) — planned</SelectItem>
+            <SelectItem value="lxc" disabled>LXC (container) — planned</SelectItem>
+            <SelectItem value="containerd" disabled>containerd — planned</SelectItem>
           </SelectContent>
         </Select>
       </Field>

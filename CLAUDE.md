@@ -65,7 +65,7 @@ make proto          # Regenerate protobuf stubs from internal/proto/*.proto
 # Test & Lint
 make test           # Unit tests with race detector
 make lint           # golangci-lint
-make test-remote    # Run tests on test host (ubuntu@10.11.3.190)
+make test-remote    # Run tests on test host (TEST_HOST, set in gitignored local.mk)
 
 # Local development infrastructure
 make dev-up         # Start etcd + postgres in Docker
@@ -128,7 +128,7 @@ Agents connect to the controller via gRPC and are differentiated by `--pillar` f
 
 ### Agent Drivers
 
-Compute drivers implement the interface in `internal/agent/compute/driver.go`. Only the `libvirt` driver is production-ready; `lxd`, `lxc`, and `containerd` directories exist but are stubs. Network and storage agent implementations are similarly skeletal.
+Compute drivers implement the interface in `internal/agent/compute/driver.go`. Only the `libvirt` (KVM) driver exists; LXD/LXC/containerd are planned but have no code. The controller rejects any `hypervisor_type` not in `supportedHypervisors` (`internal/controller/compute/types.go`) — add a type there only together with its agent driver. Network and storage agent implementations are similarly skeletal.
 
 ### Configuration
 

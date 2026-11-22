@@ -149,7 +149,7 @@ func instanceCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Instance name")
 	cmd.Flags().StringVar(&flavorID, "flavor", "", "Flavor ID")
 	cmd.Flags().StringVar(&imageID, "image", "", "Image ID")
-	cmd.Flags().StringVar(&hypervisor, "hypervisor", "kvm", "Hypervisor type (kvm|lxd|lxc|containerd)")
+	cmd.Flags().StringVar(&hypervisor, "hypervisor", "kvm", "Hypervisor type (only kvm is currently supported)")
 	cmd.Flags().StringVar(&networks, "networks", "", "Comma-separated network IDs")
 	cmd.Flags().StringVar(&userData, "user-data", "", "Cloud-init user data")
 	cmd.MarkFlagRequired("name")   //nolint:errcheck

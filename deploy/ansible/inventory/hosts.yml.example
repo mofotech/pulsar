@@ -12,13 +12,13 @@ all:
     compute_nodes:
       hosts:
         compute1:
-          ansible_host: 10.11.3.191
+          ansible_host: 192.0.2.11
           ansible_user: ubuntu
           node_id: ag-pulsar-2
-          ovn_encap_ip: 10.11.3.191
+          ovn_encap_ip: 192.0.2.11
 
         compute2:
-          ansible_host: 10.11.3.192
+          ansible_host: 192.0.2.12
           ansible_user: ubuntu
           node_id: ag-pulsar-3
-          ovn_encap_ip: 10.11.3.192
+          ovn_encap_ip: 192.0.2.12

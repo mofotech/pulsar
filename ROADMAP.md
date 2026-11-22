@@ -61,9 +61,10 @@ This file is the source of truth for feature status. `docs/pulsar-roadmap.html` 
 | Floating IP on instance list | ✅ | Auto-resolved from ports and displayed in UI |
 | Instance resize | ✅ | Flavor change via `POST /instances/{id}/resize`; libvirt hot-add vCPU/RAM (ACPI); config-only for stopped domains; UI resize dialog on instance detail page |
 | Live migration | ✅ | `POST /instances/{id}/migrate`; libvirt `DomainMigratePerform3Params` with non-shared-disk copy; live and offline modes; URI constructed as `qemu+tcp://{host}/system` |
-| LXD driver | 🔧 | Driver stub with interface stubs only; REST API client not integrated |
-| LXC driver | 🔧 | Directory placeholder only; no implementation |
-| containerd driver | 🔧 | Directory placeholder only; no implementation |
+| LXD driver | ❌ | Not started (unregistered stub removed); API rejects `hypervisor_type: lxd` |
+| LXC driver | ❌ | Not started; API rejects `hypervisor_type: lxc` |
+| containerd driver | ❌ | Not started; API rejects `hypervisor_type: containerd` |
+| Hypervisor type validation | ✅ | `CreateInstance` rejects types with no agent driver (only `kvm` today); UI shows others as "planned" |
 | HA instances (shared-storage evacuation) | ❌ | Not started |
 | Flavor → hypervisor affinity | ✅ | `hypervisor_type` on flavor drives scheduler |
 | Boot from volume | ✅ | `block_device_mappings` on CreateInstanceRequest; iSCSI-exports volume to compute node; `delete_on_terminate` support; UI volume picker in launch dialog |

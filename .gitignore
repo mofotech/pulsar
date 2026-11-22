@@ -14,6 +14,13 @@ web/node_modules/
 # Generated roadmap export (make roadmap-pdf)
 docs/pulsar-roadmap.pdf
 
+# Local test-host settings (see local.mk.example)
+local.mk
+
+# Real Ansible inventory/vars for your environment (copy the .example files)
+deploy/ansible/inventory/hosts.yml
+deploy/ansible/group_vars/compute_nodes.yml
+
 # Local secrets (see deploy/docker/.env.example)
 .env
 !.env.example

@@ -5,7 +5,7 @@
 # ── Controller ──────────────────────────────────────────────────────────────────
 
 # gRPC address of the Pulsar controller, reachable from every compute node.
-pulsar_controller_grpc: "10.11.3.190:9090"
+pulsar_controller_grpc: "192.0.2.10:9090"
 
 # HTTP base URL the controller advertises for image downloads.
 # IMPORTANT: must be an IP/FQDN reachable by remote compute nodes — NOT a
@@ -13,17 +13,17 @@ pulsar_controller_grpc: "10.11.3.190:9090"
 # uses a Docker hostname, image download URLs baked into etcd will be
 # unresolvable on compute nodes that aren't in the same Docker network.
 # Fix on the controller:
-#   sed -i 's|public_url: "http://controller:8080"|public_url: "http://10.11.3.190:8080"|' \
+#   sed -i 's|public_url: "http://controller:8080"|public_url: "http://192.0.2.10:8080"|' \
 #       /path/to/pulsar.docker.yaml && docker restart pulsar-controller-1
 # Also patch any already-uploaded images in etcd (their URL is stored at upload time):
 #   etcdctl put /pulsar/images/<id> '<json with url replaced>'
-pulsar_controller_http: "http://10.11.3.190:8080"
+pulsar_controller_http: "http://192.0.2.10:8080"
 
 # ── OVN / OVS ──────────────────────────────────────────────────────────────────
 
 # TCP address of the OVN Southbound DB (hosted on the controller node).
 # ovn-controller on each compute node connects here to receive flow programming.
-ovn_remote: "tcp:10.11.3.190:6642"
+ovn_remote: "tcp:192.0.2.10:6642"
 
 # Physical network name that maps to the external bridge.
 # Must match the physnet configured in the Pulsar controller.
@@ -76,7 +76,7 @@ network_overlay_interface: "ens3"
 # For compute-only nodes this MUST be a TCP address pointing at the controller.
 # The NB DB was bound to 0.0.0.0:6641 with:
 #   sudo ovn-nbctl set-connection ptcp:6641:0.0.0.0
-network_ovn_nb_addr: "tcp:10.11.3.190:6641"
+network_ovn_nb_addr: "tcp:192.0.2.10:6641"
 
 # ── Storage agent ──────────────────────────────────────────────────────────────
 

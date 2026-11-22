@@ -1,0 +1,4 @@
+# Copy to local.mk (gitignored) to configure your remote test host.
+# The Makefile includes local.mk automatically.
+TEST_HOST := ubuntu@192.0.2.10
+# TEST_DIR := /home/ubuntu/pulsar
